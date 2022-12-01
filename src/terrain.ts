@@ -7,23 +7,15 @@ import type {
 import { encode } from 'fast-png';
 
 const gsidem2terrainrgb = (r: number, g: number, b: number) => {
-    let height = r * 655.36 + g * 2.56 + b * 0.01;
-    if (r === 128 && g === 0 && b === 0) {
-        height = 0;
-    } else if (r >= 128) {
-        height -= 167772.16;
-    }
-    height += 100000;
-    height *= 10;
-    const tB = (height / 256 - Math.floor(height / 256)) * 256;
-    const tG =
-        (Math.floor(height / 256) / 256 -
-            Math.floor(Math.floor(height / 256) / 256)) *
-        256;
-    const tR =
-        (Math.floor(Math.floor(height / 256) / 256) / 256 -
-            Math.floor(Math.floor(Math.floor(height / 256) / 256) / 256)) *
-        256;
+    // https://qiita.com/frogcat/items/d12bed4e930b83eb3544
+    let rgb = (r << 16) + (g << 8) + b;
+    let h = 0;
+    if (rgb < 0x800000) h = rgb * 0.01;
+    else if (rgb > 0x800000) h = (rgb - Math.pow(2, 24)) * 0.01;
+    rgb = Math.floor((h + 10000) / 0.1);
+    const tR = (rgb & 0xff0000) >> 16;
+    const tG = (rgb & 0x00ff00) >> 8;
+    const tB = rgb & 0x0000ff;
     return [tR, tG, tB];
 };
 
