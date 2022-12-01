@@ -9,11 +9,14 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "esModuleInterop": true,
-    "noEmit": true,
+    "declaration": true,
+    "declarationMap": true,
+    "declarationDir": "dist",
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "outDir": "dist"
   },
-  "include": ["src"]
+  "include": ["src/terrain.ts"]
 }
