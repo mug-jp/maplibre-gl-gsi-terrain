@@ -25,7 +25,7 @@ type Options = {
     minzoom?: number;
 };
 
-export const useGsiTerrain = (
+export const useGsiTerrainSource = (
     addProtocol: (
         customProtocol: string,
         loadFn: (

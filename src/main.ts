@@ -1,16 +1,18 @@
 import maplibreGl, { Map } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
-import { useGsiTerrain } from './terrain';
+import { useGsiTerrainSource } from './terrain';
 
-const gsiTerrainSource = useGsiTerrain(maplibreGl.addProtocol);
+const gsiTerrainSource = useGsiTerrainSource(maplibreGl.addProtocol);
 
 new Map({
     container: 'app',
-    zoom: 5,
-    center: [138, 37],
+    zoom: 13,
+    center: [138.7, 35.3],
     minZoom: 5,
     maxZoom: 18,
+    pitch: 70,
+    maxPitch: 85,
     style: {
         version: 8,
         sources: {
