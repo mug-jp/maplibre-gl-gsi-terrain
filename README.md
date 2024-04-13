@@ -47,6 +47,7 @@ import { useGsiTerrainSource } from './terrain';
 const gsiTerrainSource = useGsiTerrainSource(maplibreGl.addProtocol, {
     tileUrl: 'https://tiles.gsj.jp/tiles/elev/mixed/{z}/{y}/{x}.png',
     maxzoom: 17,
+    attribution: '<a href="https://gbank.gsj.jp/seamless/elev/">産総研シームレス標高タイル</a>'
 });
 ```
 
