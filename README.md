@@ -42,7 +42,7 @@ new Map({
 
 ```typescript
 import maplibreGl from 'maplibre-gl';
-import { useGsiTerrainSource } from './terrain';
+import { useGsiTerrainSource } from 'maplibre-gl-gsi-terrain';
 
 const gsiTerrainSource = useGsiTerrainSource(maplibreGl.addProtocol, {
     tileUrl: 'https://tiles.gsj.jp/tiles/elev/mixed/{z}/{y}/{x}.png',
