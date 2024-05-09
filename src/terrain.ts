@@ -33,9 +33,7 @@ function loadPng(url: string): Promise<Uint8Array> {
         const image = new Image();
         image.crossOrigin = '';
         image.onload = () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = image.width;
-            canvas.height = image.height;
+            const canvas = new OffscreenCanvas(image.width, image.height);
 
             const context = canvas.getContext('2d', {
                 willReadFrequently: true,
