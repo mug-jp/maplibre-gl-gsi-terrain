@@ -16,8 +16,7 @@
         "noUnusedParameters": true,
         "noImplicitReturns": true,
         "skipLibCheck": true,
-        "outDir": "dist",
-        "allowJs": true
+        "outDir": "dist"
     },
-    "include": ["src/terrain.ts", "src/worker.ts", "src/workerpool.js"]
+    "include": ["src/terrain.ts", "src/worker.ts"]
 }
