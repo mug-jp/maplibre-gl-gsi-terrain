@@ -1,7 +1,7 @@
 import maplibreGl, { Map } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
-import { useGsiTerrainSource } from './terrain';
+import { useGsiTerrainSource } from '../dist/terrain';
 
 const gsiTerrainSource = useGsiTerrainSource(maplibreGl.addProtocol, {
     tileUrl: 'https://tiles.gsj.jp/tiles/elev/mixed/{z}/{y}/{x}.png',
