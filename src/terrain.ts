@@ -59,7 +59,7 @@ export const useGsiTerrainSource = (addProtocol: typeof maplibregl.addProtocol, 
                 }
             };
 
-            const handleError = (e: MessageEvent) => {
+            const handleError = (e: ErrorEvent) => {
                 console.error(e);
                 abortController.abort();
                 reject({

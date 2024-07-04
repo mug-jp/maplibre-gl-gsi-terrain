@@ -1,6 +1,7 @@
 {
     "compilerOptions": {
         "target": "ESNext",
+        "types": ["vite/client"],
         "useDefineForClassFields": true,
         "module": "ESNext",
         "lib": ["ESNext", "DOM"],
