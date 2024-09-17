@@ -1,6 +1,5 @@
 import type { RasterDEMSourceSpecification } from 'maplibre-gl';
 import maplibregl from 'maplibre-gl';
-import Worker from './worker?worker';
 
 type Options = {
     attribution?: string;
@@ -38,44 +37,44 @@ type Options = {
  * });
  */
 
-const worker = new Worker();
+const worker = new Worker(new URL('./worker.ts', import.meta.url), {
+    type: 'module',
+});
+const pendingRequests = new Map();
+worker.addEventListener('message', (e) => {
+    const { id, buffer } = e.data;
+    const request = pendingRequests.get(id);
+    if (request) {
+        if (buffer.byteLength === 0) {
+            request.reject(new Error('Empty buffer received'));
+        } else {
+            request.resolve({ data: new Uint8Array(buffer) });
+        }
+        pendingRequests.delete(id);
+    }
+});
+
+worker.addEventListener('error', (e) => {
+    console.error('Worker error:', e);
+
+    pendingRequests.forEach((request) => {
+        request.reject(new Error('Worker error occurred'));
+    });
+    pendingRequests.clear();
+});
 export const useGsiTerrainSource = (addProtocol: typeof maplibregl.addProtocol, options: Options = {}): RasterDEMSourceSpecification => {
     addProtocol('gsidem', async (params, abortController) => {
         const imageUrl = params.url.replace('gsidem://', '');
         return new Promise((resolve, reject) => {
-            const handleMessage = (e: MessageEvent) => {
-                if (e.data.id === imageUrl) {
-                    if (e.data.buffer.byteLength === 0) {
-                        reject({
-                            data: new Uint8Array(0),
-                        });
-                    } else {
-                        const arrayBuffer = e.data.buffer;
-                        resolve({
-                            data: new Uint8Array(arrayBuffer),
-                        });
-                    }
-                    cleanup();
-                }
-            };
+            const request = { resolve, reject };
+            pendingRequests.set(imageUrl, request);
 
-            const handleError = (e: ErrorEvent) => {
-                console.error(e);
-                abortController.abort();
-                reject({
-                    data: new Uint8Array(0),
-                });
-                cleanup();
-            };
-
-            const cleanup = () => {
-                worker.removeEventListener('message', handleMessage);
-                worker.removeEventListener('error', handleError);
-            };
-
-            worker.addEventListener('message', handleMessage);
-            worker.addEventListener('error', handleError);
             worker.postMessage({ url: imageUrl });
+
+            abortController.signal.addEventListener('abort', () => {
+                pendingRequests.delete(imageUrl);
+                reject(new Error('Request aborted'));
+            });
         });
     });
     const tileUrl = options.tileUrl ?? `https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png`;
