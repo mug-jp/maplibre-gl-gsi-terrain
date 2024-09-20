@@ -18,7 +18,12 @@ const vsSource = `#version 300 es
 `;
 
 const fsSource = `#version 300 es
+    #ifdef GL_FRAGMENT_PRECISION_HIGH
+    precision highp float;
+    #else
     precision mediump float;
+    #endif
+
     uniform sampler2D heightMap;
     in vec2 vTexCoord;
     out vec4 fragColor;
