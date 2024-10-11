@@ -1,50 +1,42 @@
-const loadImage = async (src: string): Promise<ImageBitmap> => {
-    const response = await fetch(src);
-    if (!response.ok) {
-        throw new Error('Failed to fetch image');
-    }
-    const blob = await response.blob();
-    return await createImageBitmap(blob);
-};
-
 const vsSource = `#version 300 es
     in vec4 aPosition;
     out vec2 vTexCoord;
 
     void main() {
         gl_Position = aPosition;
-        vTexCoord = vec2(aPosition.x * 0.5 + 0.5, aPosition.y * -0.5 + 0.5); // Y軸を反転
+        vTexCoord = vec2(aPosition.x * 0.5 + 0.5, aPosition.y * -0.5 + 0.5);
     }
 `;
 
 const fsSource = `#version 300 es
+    #ifdef GL_FRAGMENT_PRECISION_HIGH
+    precision highp float;
+    #else
     precision mediump float;
+    #endif
+
     uniform sampler2D heightMap;
     in vec2 vTexCoord;
     out vec4 fragColor;
 
+    #define HEIGHT_OFFSET 10000.0
+    #define HEIGHT_SCALE 10.0
+
     void main() {
-        vec2 uv = vTexCoord;
-        vec4 color = texture(heightMap, uv);
+        vec4 color = texture(heightMap, vTexCoord);
+        vec3 rgb = color.rgb * 255.0;
 
-        float r = color.r * 255.0;
-        float g = color.g * 255.0;
-        float b = color.b * 255.0;
+        float rgbValue = dot(rgb, vec3(65536.0, 256.0, 1.0));
+        float height = mix(rgbValue, rgbValue - 16777216.0, step(8388608.0, rgbValue)) * 0.01;
 
-        if (r == 128.0) {
-            fragColor = vec4(1.0 / 255.0, 134.0 / 255.0, 160.0 / 255.0, 1.0);
-        } else {
-            float rgb = r * 65536.0 + g * 256.0 + b;
-            float height = (rgb < 8388608.0) ? rgb * 0.01 : (rgb - 16777216.0) * 0.01;
+        height = (height + HEIGHT_OFFSET) * HEIGHT_SCALE;
 
-            height = (height + 10000.0) * 10.0;
-
-            float tB = mod(height, 256.0);
-            float tG = mod(floor(height / 256.0), 256.0);
-            float tR = floor(height / 65536.0);
-
-            fragColor = vec4(tR / 255.0, tG / 255.0, tB / 255.0, 1.0);
-        }
+        fragColor = vec4(
+            floor(height / 65536.0) / 255.0,
+            floor(mod(height / 256.0, 256.0)) / 255.0,
+            mod(height, 256.0) / 255.0,
+            1.0
+        );
     }
 `;
 
@@ -95,8 +87,6 @@ const initWebGL = (canvas: OffscreenCanvas) => {
         throw new Error('Failed to link program');
     }
 
-    gl.useProgram(program);
-
     positionBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
     const positions = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
@@ -111,10 +101,9 @@ const initWebGL = (canvas: OffscreenCanvas) => {
 const canvas = new OffscreenCanvas(256, 256);
 
 self.onmessage = async (e) => {
-    const { url } = e.data;
+    const { url, image } = e.data;
 
     try {
-        const image = await loadImage(url);
         if (!gl) {
             initWebGL(canvas);
         }
@@ -142,12 +131,11 @@ self.onmessage = async (e) => {
         if (!blob) {
             throw new Error('Failed to convert canvas to blob');
         }
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            self.postMessage({ id: url, buffer: reader.result });
-        };
-        reader.readAsArrayBuffer(blob);
+        const buffer = await blob.arrayBuffer();
+        self.postMessage({ id: url, buffer });
     } catch (error) {
-        self.postMessage({ id: url, buffer: new ArrayBuffer(0) });
+        if (error instanceof Error) {
+            self.postMessage({ id: url, error: error.message });
+        }
     }
 };

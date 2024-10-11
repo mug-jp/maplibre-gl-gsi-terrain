@@ -1,6 +1,74 @@
 import type { RasterDEMSourceSpecification } from 'maplibre-gl';
 import maplibregl from 'maplibre-gl';
 
+const loadImage = async (src: string, signal: AbortSignal): Promise<ImageBitmap> => {
+    const response = await fetch(src, { signal: signal });
+    if (!response.ok) {
+        throw new Error('Failed to fetch image');
+    }
+    return await createImageBitmap(await response.blob());
+};
+
+class WorkerProtocol {
+    private worker: Worker;
+    private pendingRequests: Map<
+        string,
+        {
+            resolve: (value: { data: Uint8Array } | PromiseLike<{ data: Uint8Array }>) => void;
+            reject: (reason?: any) => void;
+            controller: AbortController;
+        }
+    >;
+
+    constructor(worker: Worker) {
+        this.worker = worker;
+        this.pendingRequests = new Map();
+        this.worker.addEventListener('message', this.handleMessage);
+        this.worker.addEventListener('error', this.handleError);
+    }
+
+    async request(url: string, controller: AbortController): Promise<{ data: Uint8Array }> {
+        try {
+            const image = await loadImage(url, controller.signal);
+            return new Promise((resolve, reject) => {
+                this.pendingRequests.set(url, { resolve, reject, controller });
+                this.worker.postMessage({ image, url });
+
+                controller.signal.addEventListener('abort', () => {
+                    this.pendingRequests.delete(url);
+                    reject(new Error('Request aborted'));
+                });
+            });
+        } catch (error) {
+            return Promise.reject(error);
+        }
+    }
+
+    private handleMessage = (e: MessageEvent) => {
+        const { id, buffer, error } = e.data;
+        if (error) {
+            console.error(`Error processing tile ${id}:`, error);
+        } else {
+            const request = this.pendingRequests.get(id);
+            if (request) {
+                request.resolve({ data: new Uint8Array(buffer) });
+                this.pendingRequests.delete(id);
+            }
+        }
+    };
+
+    private handleError = (e: ErrorEvent) => {
+        console.error('Worker error:', e);
+        this.pendingRequests.forEach((request) => {
+            request.reject(new Error('Worker error occurred'));
+        });
+        this.pendingRequests.clear();
+    };
+}
+
+const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+const workerProtocol = new WorkerProtocol(worker);
+
 type Options = {
     attribution?: string;
     maxzoom?: number;
@@ -36,46 +104,10 @@ type Options = {
  *   attribution: '<a href="https://gbank.gsj.jp/seamless/elev/">産総研シームレス標高タイル</a>',
  * });
  */
-
-const worker = new Worker(new URL('./worker.ts', import.meta.url), {
-    type: 'module',
-});
-const pendingRequests = new Map();
-worker.addEventListener('message', (e) => {
-    const { id, buffer } = e.data;
-    const request = pendingRequests.get(id);
-    if (request) {
-        if (buffer.byteLength === 0) {
-            request.reject(new Error('Empty buffer received'));
-        } else {
-            request.resolve({ data: new Uint8Array(buffer) });
-        }
-        pendingRequests.delete(id);
-    }
-});
-
-worker.addEventListener('error', (e) => {
-    console.error('Worker error:', e);
-
-    pendingRequests.forEach((request) => {
-        request.reject(new Error('Worker error occurred'));
-    });
-    pendingRequests.clear();
-});
 export const useGsiTerrainSource = (addProtocol: typeof maplibregl.addProtocol, options: Options = {}): RasterDEMSourceSpecification => {
-    addProtocol('gsidem', async (params, abortController) => {
+    addProtocol('gsidem', (params, abortController) => {
         const imageUrl = params.url.replace('gsidem://', '');
-        return new Promise((resolve, reject) => {
-            const request = { resolve, reject };
-            pendingRequests.set(imageUrl, request);
-
-            worker.postMessage({ url: imageUrl });
-
-            abortController.signal.addEventListener('abort', () => {
-                pendingRequests.delete(imageUrl);
-                reject(new Error('Request aborted'));
-            });
-        });
+        return workerProtocol.request(imageUrl, abortController);
     });
     const tileUrl = options.tileUrl ?? `https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png`;
 
