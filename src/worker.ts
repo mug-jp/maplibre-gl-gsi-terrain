@@ -1,10 +1,10 @@
 const vsSource = `#version 300 es
     in vec4 a_position;
-    out vec2 v_texCoord;
+    out vec2 v_tex_coord;
 
     void main() {
         gl_Position = a_position;
-        v_texCoord = vec2(a_position.x * 0.5 + 0.5, a_position.y * -0.5 + 0.5);
+        v_tex_coord = vec2(a_position.x * 0.5 + 0.5, a_position.y * -0.5 + 0.5);
     }
 `;
 
@@ -16,32 +16,32 @@ const fsSource = `#version 300 es
     #endif
 
     uniform sampler2D u_height_map;
-    in vec2 v_texCoord;
+    in vec2 v_tex_coord;
     out vec4 fragColor;
 
-    #define HEIGHT_OFFSET 10000.0
-    #define HEIGHT_SCALE 10.0
-
     void main() {
-        vec4 color = texture(u_height_map, v_texCoord);
+        vec4 color = texture(u_height_map, v_tex_coord);
         vec3 rgb = color.rgb * 255.0;
 
-        // 無効値のピクセル（RGB: 128, 0, 0）または完全に透明なピクセルをTerrainRGBにおける高度0mの色に変換する
-        if(rgb.r == 128.0 && rgb.g == 0.0 && rgb.b == 0.0 || color.a == 0.0) {
-            fragColor = vec4(1.0, 134.0, 160.0, 255.0) / 255.0;
-            return;
-        }
+        // terrainRGBにおける高度0の色
+        vec4 zero_elevation_color = vec4(1.0, 134.0, 160.0, 255.0) / 255.0;
 
         float rgb_value = dot(rgb, vec3(65536.0, 256.0, 1.0));
         float height = mix(rgb_value, rgb_value - 16777216.0, step(8388608.0, rgb_value)) * 0.01;
+        height = (height + 10000.0) * 10.0;
 
-        height = (height + HEIGHT_OFFSET) * HEIGHT_SCALE;
+        // 地理院標高タイルの無効値または完全に透明なピクセルの判定
+        bool is_valid = (rgb.r != 128.0 || rgb.g != 0.0 || rgb.b != 0.0) && color.a != 0.0;
 
-        fragColor = vec4(
-            floor(height / 65536.0) / 255.0,
-            floor(mod(height / 256.0, 256.0)) / 255.0,
-            mod(height, 256.0) / 255.0,
-            1.0
+        fragColor = mix(
+            zero_elevation_color,
+            vec4(
+                floor(height / 65536.0) / 255.0,
+                floor(mod(height / 256.0, 256.0)) / 255.0,
+                mod(height, 256.0) / 255.0,
+                1.0
+            ),
+            float(is_valid)
         );
     }
 `;
