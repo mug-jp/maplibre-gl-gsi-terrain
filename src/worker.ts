@@ -1,10 +1,10 @@
 const vsSource = `#version 300 es
-    in vec4 aPosition;
-    out vec2 vTexCoord;
+    in vec4 a_position;
+    out vec2 v_texCoord;
 
     void main() {
-        gl_Position = aPosition;
-        vTexCoord = vec2(aPosition.x * 0.5 + 0.5, aPosition.y * -0.5 + 0.5);
+        gl_Position = a_position;
+        v_texCoord = vec2(a_position.x * 0.5 + 0.5, a_position.y * -0.5 + 0.5);
     }
 `;
 
@@ -15,19 +15,25 @@ const fsSource = `#version 300 es
     precision mediump float;
     #endif
 
-    uniform sampler2D heightMap;
-    in vec2 vTexCoord;
+    uniform sampler2D u_height_map;
+    in vec2 v_texCoord;
     out vec4 fragColor;
 
     #define HEIGHT_OFFSET 10000.0
     #define HEIGHT_SCALE 10.0
 
     void main() {
-        vec4 color = texture(heightMap, vTexCoord);
+        vec4 color = texture(u_height_map, v_texCoord);
         vec3 rgb = color.rgb * 255.0;
 
-        float rgbValue = dot(rgb, vec3(65536.0, 256.0, 1.0));
-        float height = mix(rgbValue, rgbValue - 16777216.0, step(8388608.0, rgbValue)) * 0.01;
+        // 無効値のピクセル（RGB: 128, 0, 0）または完全に透明なピクセルをTerrainRGBにおける高度0mの色に変換する
+        if(rgb.r == 128.0 && rgb.g == 0.0 && rgb.b == 0.0 || color.a == 0.0) {
+            fragColor = vec4(1.0, 134.0, 160.0, 255.0) / 255.0;
+            return;
+        }
+
+        float rgb_value = dot(rgb, vec3(65536.0, 256.0, 1.0));
+        float height = mix(rgb_value, rgb_value - 16777216.0, step(8388608.0, rgb_value)) * 0.01;
 
         height = (height + HEIGHT_OFFSET) * HEIGHT_SCALE;
 
@@ -91,17 +97,17 @@ const initWebGL = (canvas: OffscreenCanvas) => {
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
     const positions = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
     gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
-    const positionLocation = gl.getAttribLocation(program, 'aPosition');
+    const positionLocation = gl.getAttribLocation(program, 'a_position');
     gl.enableVertexAttribArray(positionLocation);
     gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
 
-    heightMapLocation = gl.getUniformLocation(program, 'heightMap');
+    heightMapLocation = gl.getUniformLocation(program, 'u_height_map');
 };
 
 const canvas = new OffscreenCanvas(256, 256);
 
 self.onmessage = async (e) => {
-    const { url, image } = e.data;
+    const { id, image } = e.data;
 
     try {
         if (!gl) {
@@ -118,8 +124,8 @@ self.onmessage = async (e) => {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 
         gl.useProgram(program);
         gl.uniform1i(heightMapLocation, 0);
@@ -132,10 +138,10 @@ self.onmessage = async (e) => {
             throw new Error('Failed to convert canvas to blob');
         }
         const buffer = await blob.arrayBuffer();
-        self.postMessage({ id: url, buffer });
+        self.postMessage({ id: id, buffer });
     } catch (error) {
         if (error instanceof Error) {
-            self.postMessage({ id: url, error: error.message });
+            self.postMessage({ id: id, error: error.message });
         }
     }
 };
