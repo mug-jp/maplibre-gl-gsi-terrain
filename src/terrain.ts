@@ -15,7 +15,7 @@ class WorkerProtocol {
         string,
         {
             resolve: (value: { data: Uint8Array } | PromiseLike<{ data: Uint8Array }>) => void;
-            reject: (reason?: any) => void;
+            reject: (reason?: Error) => void;
             controller: AbortController;
         }
     >;
@@ -27,15 +27,23 @@ class WorkerProtocol {
         this.worker.addEventListener('error', this.handleError);
     }
 
-    async request(url: string, controller: AbortController): Promise<{ data: Uint8Array }> {
+    async request(url: URL, controller: AbortController): Promise<{ data: Uint8Array }> {
         try {
-            const image = await loadImage(url, controller.signal);
+            // タイル座標からIDを生成し、リクエストを管理する
+            const x = url.searchParams.get('x');
+            const y = url.searchParams.get('y');
+            const z = url.searchParams.get('z');
+            const tileId = `${z}/${x}/${y}`;
+
+            const imageUrl = url.origin + url.pathname;
+            const image = await loadImage(imageUrl, controller.signal);
+
             return new Promise((resolve, reject) => {
-                this.pendingRequests.set(url, { resolve, reject, controller });
-                this.worker.postMessage({ image, url });
+                this.pendingRequests.set(tileId, { resolve, reject, controller });
+                this.worker.postMessage({ image, id: tileId });
 
                 controller.signal.addEventListener('abort', () => {
-                    this.pendingRequests.delete(url);
+                    this.pendingRequests.delete(tileId);
                     reject(new Error('Request aborted'));
                 });
             });
@@ -106,14 +114,15 @@ type Options = {
  */
 export const useGsiTerrainSource = (addProtocol: typeof maplibregl.addProtocol, options: Options = {}): RasterDEMSourceSpecification => {
     addProtocol('gsidem', (params, abortController) => {
-        const imageUrl = params.url.replace('gsidem://', '');
-        return workerProtocol.request(imageUrl, abortController);
+        const urlWithoutProtocol = params.url.replace('gsidem://', '');
+        const url = new URL(urlWithoutProtocol);
+        return workerProtocol.request(url, abortController);
     });
     const tileUrl = options.tileUrl ?? `https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png`;
 
     return {
         type: 'raster-dem',
-        tiles: [`gsidem://${tileUrl}`],
+        tiles: [`gsidem://${tileUrl}?x={x}&y={y}&z={z}`],
         tileSize: 256,
         minzoom: options.minzoom ?? 1,
         maxzoom: options.maxzoom ?? 14,
