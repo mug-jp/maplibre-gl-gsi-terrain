@@ -1,10 +1,10 @@
 const vsSource = `#version 300 es
     in vec4 a_position;
-    out vec2 v_texCoord;
+    out vec2 v_tex_coord;
 
     void main() {
         gl_Position = a_position;
-        v_texCoord = vec2(a_position.x * 0.5 + 0.5, a_position.y * -0.5 + 0.5);
+        v_tex_coord = vec2(a_position.x * 0.5 + 0.5, a_position.y * -0.5 + 0.5);
     }
 `;
 
@@ -16,11 +16,11 @@ const fsSource = `#version 300 es
     #endif
 
     uniform sampler2D u_height_map;
-    in vec2 v_texCoord;
+    in vec2 v_tex_coord;
     out vec4 fragColor;
 
     void main() {
-        vec4 color = texture(u_height_map, v_texCoord);
+        vec4 color = texture(u_height_map, v_tex_coord);
         vec3 rgb = color.rgb * 255.0;
 
         // terrainRGBにおける高度0の色
