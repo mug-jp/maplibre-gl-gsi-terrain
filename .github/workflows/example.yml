@@ -1,37 +1,40 @@
 name: Example
 
 on:
-    push:
-        branches:
-            - master
-    workflow_dispatch:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
 
 jobs:
-    deploy:
-        runs-on: ubuntu-latest
-        permissions:
-            id-token: write
-            contents: write
-        steps:
-            - uses: actions/checkout@v4
-            - name: setup node
-              uses: actions/setup-node@v1
-              with:
-                  node-version: '20.x'
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: setup node
+        uses: actions/setup-node@v1
+        with:
+          node-version: '20.x'
 
-            - name: install
-              run: npm ci
+      - name: install
+        run: npm ci
 
-            - name: build
-              run: npm run build:web
+      - name: build
+        run: npm run build
 
-            - name: add nojekyll
-              run: touch ./example/.nojekyll
+      - name: add nojekyll
+        run: touch ./dist/.nojekyll
 
-            # deploy files to gh-pages
-            - name: Deploy to gh-pages
-              uses: peaceiris/actions-gh-pages@v3
-              with:
-                  personal_token: ${{ secrets.GITHUB_TOKEN }}
-                  publish_dir: ./example
-                  publish_branch: gh-pages
+      - name: replace './src/terrain.ts' of index.html to './terrain.js'
+        run: sed -e 's/\.\/src\/terrain\.ts/\.\/terrain\.js/g' ./index.html > ./dist/index.html
+
+      # deploy files to gh-pages
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          personal_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          publish_branch: gh-pages

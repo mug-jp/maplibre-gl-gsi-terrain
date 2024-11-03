@@ -1,87 +1,105 @@
 import type { RasterDEMSourceSpecification } from 'maplibre-gl';
 import maplibregl from 'maplibre-gl';
 
-const loadImage = async (src: string, signal: AbortSignal): Promise<ImageBitmap> => {
-    const response = await fetch(src, { signal: signal });
-    if (!response.ok) {
-        throw new Error('Failed to fetch image');
-    }
-    return await createImageBitmap(await response.blob());
+const loadImage = async (
+	src: string,
+	signal: AbortSignal,
+): Promise<ImageBitmap> => {
+	// <img> -> canvas -> ImageBitmap
+	const image = new Image();
+	image.src = src;
+	image.decoding = 'async';
+	image.crossOrigin = 'anonymous';
+	return new Promise((resolve, reject) => {
+		image.onload = () => {
+			const canvas = new OffscreenCanvas(image.width, image.height);
+			const context = canvas.getContext('2d');
+			if (!context) {
+				reject(new Error('Failed to get 2D context'));
+				return;
+			}
+			context.drawImage(image, 0, 0);
+			resolve(canvas.transferToImageBitmap());
+		};
+		image.onerror = () => {
+			reject(new Error('Failed to load image'));
+		};
+		signal.onabort = () => {
+			image.src = '';
+			reject(new Error('Request aborted'));
+		};
+	});
 };
 
 class WorkerProtocol {
-    private worker: Worker;
-    private pendingRequests: Map<
-        string,
-        {
-            resolve: (value: { data: Uint8Array } | PromiseLike<{ data: Uint8Array }>) => void;
-            reject: (reason?: Error) => void;
-            controller: AbortController;
-        }
-    >;
+	private worker: Worker;
+	private pendingRequests: Map<
+		string,
+		{
+			resolve: (
+				value: { data: Uint8Array } | PromiseLike<{ data: Uint8Array }>,
+			) => void;
+			reject: (reason?: Error) => void;
+			controller: AbortController;
+		}
+	>;
 
-    constructor(worker: Worker) {
-        this.worker = worker;
-        this.pendingRequests = new Map();
-        this.worker.addEventListener('message', this.handleMessage);
-        this.worker.addEventListener('error', this.handleError);
-    }
+	constructor(worker: Worker) {
+		this.worker = worker;
+		this.pendingRequests = new Map();
+		this.worker.addEventListener('message', this.handleMessage);
+		this.worker.addEventListener('error', this.handleError);
+	}
 
-    async request(url: URL, controller: AbortController): Promise<{ data: Uint8Array }> {
-        try {
-            // タイル座標からIDを生成し、リクエストを管理する
-            const x = url.searchParams.get('x');
-            const y = url.searchParams.get('y');
-            const z = url.searchParams.get('z');
-            const tileId = `${z}/${x}/${y}`;
+	async request(
+		url: string,
+		controller: AbortController,
+	): Promise<{ data: Uint8Array }> {
+		const image = await loadImage(url, controller.signal);
 
-            const imageUrl = url.origin + url.pathname;
-            const image = await loadImage(imageUrl, controller.signal);
+		return new Promise((resolve, reject) => {
+			this.pendingRequests.set(url, { resolve, reject, controller });
+			this.worker.postMessage({ image, url });
 
-            return new Promise((resolve, reject) => {
-                this.pendingRequests.set(tileId, { resolve, reject, controller });
-                this.worker.postMessage({ image, id: tileId });
+			controller.signal.onabort = () => {
+				this.pendingRequests.delete(url);
+				reject(new Error('Request aborted'));
+			};
+		});
+	}
 
-                controller.signal.addEventListener('abort', () => {
-                    this.pendingRequests.delete(tileId);
-                    reject(new Error('Request aborted'));
-                });
-            });
-        } catch (error) {
-            return Promise.reject(error);
-        }
-    }
+	private handleMessage = (e: MessageEvent) => {
+		const { url, buffer, error } = e.data;
+		if (error) {
+			console.error(`Error processing tile ${url}:`, error);
+		} else {
+			const request = this.pendingRequests.get(url);
+			if (request) {
+				request.resolve({ data: new Uint8Array(buffer) });
+				this.pendingRequests.delete(url);
+			}
+		}
+	};
 
-    private handleMessage = (e: MessageEvent) => {
-        const { id, buffer, error } = e.data;
-        if (error) {
-            console.error(`Error processing tile ${id}:`, error);
-        } else {
-            const request = this.pendingRequests.get(id);
-            if (request) {
-                request.resolve({ data: new Uint8Array(buffer) });
-                this.pendingRequests.delete(id);
-            }
-        }
-    };
-
-    private handleError = (e: ErrorEvent) => {
-        console.error('Worker error:', e);
-        this.pendingRequests.forEach((request) => {
-            request.reject(new Error('Worker error occurred'));
-        });
-        this.pendingRequests.clear();
-    };
+	private handleError = (e: ErrorEvent) => {
+		console.error('Worker error:', e);
+		this.pendingRequests.forEach((request) => {
+			request.reject(new Error('Worker error occurred'));
+		});
+		this.pendingRequests.clear();
+	};
 }
 
-const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+const worker = new Worker(new URL('./worker.ts', import.meta.url), {
+	type: 'module',
+});
 const workerProtocol = new WorkerProtocol(worker);
 
 type Options = {
-    attribution?: string;
-    maxzoom?: number;
-    minzoom?: number;
-    tileUrl?: string;
+	attribution?: string;
+	maxzoom?: number;
+	minzoom?: number;
+	tileUrl?: string;
 };
 
 /**
@@ -112,20 +130,26 @@ type Options = {
  *   attribution: '<a href="https://gbank.gsj.jp/seamless/elev/">産総研シームレス標高タイル</a>',
  * });
  */
-export const useGsiTerrainSource = (addProtocol: typeof maplibregl.addProtocol, options: Options = {}): RasterDEMSourceSpecification => {
-    addProtocol('gsidem', (params, abortController) => {
-        const urlWithoutProtocol = params.url.replace('gsidem://', '');
-        const url = new URL(urlWithoutProtocol);
-        return workerProtocol.request(url, abortController);
-    });
-    const tileUrl = options.tileUrl ?? `https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png`;
+export const useGsiTerrainSource = (
+	addProtocol: typeof maplibregl.addProtocol,
+	options: Options = {},
+): RasterDEMSourceSpecification => {
+	addProtocol('gsidem', (params, abortController) => {
+		const urlWithoutProtocol = params.url.replace('gsidem://', '');
+		return workerProtocol.request(urlWithoutProtocol, abortController);
+	});
+	const tileUrl =
+		options.tileUrl ??
+		`https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png`;
 
-    return {
-        type: 'raster-dem',
-        tiles: [`gsidem://${tileUrl}?x={x}&y={y}&z={z}`],
-        tileSize: 256,
-        minzoom: options.minzoom ?? 1,
-        maxzoom: options.maxzoom ?? 14,
-        attribution: options.attribution ?? '<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>',
-    };
+	return {
+		type: 'raster-dem',
+		tiles: [`gsidem://${tileUrl}?x={x}&y={y}&z={z}`],
+		tileSize: 256,
+		minzoom: options.minzoom ?? 1,
+		maxzoom: options.maxzoom ?? 14,
+		attribution:
+			options.attribution ??
+			'<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>',
+	};
 };
