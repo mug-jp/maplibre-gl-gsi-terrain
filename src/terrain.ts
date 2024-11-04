@@ -4,10 +4,18 @@ import maplibregl from 'maplibre-gl';
 const loadImage = async (
 	src: string,
 	signal: AbortSignal,
-): Promise<ImageBitmap> => {
-	const response = await fetch(src, { signal });
+): Promise<ImageBitmap | null> => {
+	let response: Response;
+	try {
+		response = await fetch(src, { signal });
+	} catch (e) {
+		if (!signal.aborted) {
+			console.error(`Failed to fetch image: ${e}`);
+		}
+		return null;
+	}
 	if (!response.ok) {
-		throw new Error('Failed to fetch image');
+		return null;
 	}
 	return await createImageBitmap(await response.blob());
 };
@@ -35,10 +43,9 @@ class WorkerProtocol {
 		url: string,
 		controller: AbortController,
 	): Promise<{ data: Uint8Array }> {
-		let image: ImageBitmap;
-		try {
-			image = await loadImage(url, controller.signal);
-		} catch {
+		const image = await loadImage(url, controller.signal);
+
+		if (!image) {
 			return Promise.reject(new Error('Failed to load image'));
 		}
 
