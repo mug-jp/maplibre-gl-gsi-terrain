@@ -1,23 +1,24 @@
 {
-    "compilerOptions": {
-        "target": "ESNext",
-        "types": ["vite/client"],
-        "useDefineForClassFields": true,
-        "module": "ESNext",
-        "lib": ["ESNext", "DOM"],
-        "moduleResolution": "Node",
-        "strict": true,
-        "resolveJsonModule": true,
-        "isolatedModules": true,
-        "esModuleInterop": true,
-        "declaration": true,
-        "declarationMap": true,
-        "declarationDir": "dist",
-        "noUnusedLocals": true,
-        "noUnusedParameters": true,
-        "noImplicitReturns": true,
-        "skipLibCheck": true,
-        "outDir": "dist"
-    },
-    "include": ["src/terrain.ts", "src/worker.ts"]
+	"compilerOptions": {
+		"target": "ESNext",
+		"types": ["vite/client"],
+		"useDefineForClassFields": true,
+		"module": "ESNext",
+		"lib": ["ESNext", "DOM"],
+		"moduleResolution": "Node",
+		"strict": true,
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"esModuleInterop": true,
+		"declaration": true,
+		"declarationMap": true,
+		"declarationDir": "dist",
+		"emitDeclarationOnly": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noImplicitReturns": true,
+		"skipLibCheck": true,
+		"outDir": "dist"
+	},
+	"include": ["src/terrain.ts"]
 }
