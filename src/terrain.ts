@@ -5,32 +5,12 @@ const loadImage = async (
 	src: string,
 	signal: AbortSignal,
 ): Promise<ImageBitmap> => {
-	// <img> -> canvas -> ImageBitmap
-	const image = new Image();
-	image.src = src;
-	image.decoding = 'async';
-	image.crossOrigin = 'anonymous';
-	return new Promise((resolve, reject) => {
-		image.onload = () => {
-			const canvas = new OffscreenCanvas(image.width, image.height);
-			const context = canvas.getContext('2d');
-			if (!context) {
-				reject(new Error('Failed to get 2D context'));
-				return;
-			}
-			context.drawImage(image, 0, 0);
-			resolve(canvas.transferToImageBitmap());
-		};
-		image.onerror = () => {
-			reject(new Error('Failed to load image'));
-		};
-		signal.onabort = () => {
-			image.src = '';
-			reject(new Error('Request aborted'));
-		};
-	});
+	const response = await fetch(src, { signal });
+	if (!response.ok) {
+		throw new Error('Failed to fetch image');
+	}
+	return await createImageBitmap(await response.blob());
 };
-
 class WorkerProtocol {
 	private worker: Worker;
 	private pendingRequests: Map<
@@ -144,7 +124,7 @@ export const useGsiTerrainSource = (
 
 	return {
 		type: 'raster-dem',
-		tiles: [`gsidem://${tileUrl}?x={x}&y={y}&z={z}`],
+		tiles: [`gsidem://${tileUrl}`],
 		tileSize: 256,
 		minzoom: options.minzoom ?? 1,
 		maxzoom: options.maxzoom ?? 14,
