@@ -35,7 +35,12 @@ class WorkerProtocol {
 		url: string,
 		controller: AbortController,
 	): Promise<{ data: Uint8Array }> {
-		const image = await loadImage(url, controller.signal);
+		let image: ImageBitmap;
+		try {
+			image = await loadImage(url, controller.signal);
+		} catch {
+			return Promise.reject(new Error('Failed to load image'));
+		}
 
 		return new Promise((resolve, reject) => {
 			this.pendingRequests.set(url, { resolve, reject, controller });
