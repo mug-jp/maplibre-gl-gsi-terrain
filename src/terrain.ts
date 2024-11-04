@@ -1,77 +1,98 @@
 import type { RasterDEMSourceSpecification } from 'maplibre-gl';
 import maplibregl from 'maplibre-gl';
-import { encode } from 'fast-png';
 
-function gsidem2terrainrgb(
-    r: number,
-    g: number,
-    b: number,
-): [number, number, number] {
-    // https://qiita.com/frogcat/items/d12bed4e930b83eb3544
-    let rgb = (r << 16) + (g << 8) + b;
-    let h = 0;
+const loadImage = async (
+	src: string,
+	signal: AbortSignal,
+): Promise<ImageBitmap | null> => {
+	let response: Response;
+	try {
+		response = await fetch(src, { signal });
+	} catch (e) {
+		if (!signal.aborted) {
+			console.error(`Failed to fetch image: ${e}`);
+		}
+		return null;
+	}
+	if (!response.ok) {
+		return null;
+	}
+	return await createImageBitmap(await response.blob());
+};
+class WorkerProtocol {
+	private worker: Worker;
+	private pendingRequests: Map<
+		string,
+		{
+			resolve: (
+				value: { data: Uint8Array } | PromiseLike<{ data: Uint8Array }>,
+			) => void;
+			reject: (reason?: Error) => void;
+			controller: AbortController;
+		}
+	>;
 
-    if (rgb < 0x800000) h = rgb * 0.01;
-    else if (rgb > 0x800000) h = (rgb - Math.pow(2, 24)) * 0.01;
+	constructor(worker: Worker) {
+		this.worker = worker;
+		this.pendingRequests = new Map();
+		this.worker.addEventListener('message', this.handleMessage);
+		this.worker.addEventListener('error', this.handleError);
+	}
 
-    rgb = Math.floor((h + 10000) / 0.1);
-    const tR = (rgb & 0xff0000) >> 16;
-    const tG = (rgb & 0x00ff00) >> 8;
-    const tB = rgb & 0x0000ff;
-    return [tR, tG, tB];
+	async request(
+		url: string,
+		controller: AbortController,
+	): Promise<{ data: Uint8Array }> {
+		const image = await loadImage(url, controller.signal);
+
+		if (!image) {
+			return Promise.reject(new Error('Failed to load image'));
+		}
+
+		return new Promise((resolve, reject) => {
+			this.pendingRequests.set(url, { resolve, reject, controller });
+			this.worker.postMessage({ image, url });
+
+			controller.signal.onabort = () => {
+				this.pendingRequests.delete(url);
+				reject(new Error('Request aborted'));
+			};
+		});
+	}
+
+	private handleMessage = (e: MessageEvent) => {
+		const { url, buffer, error } = e.data;
+		if (error) {
+			console.error(`Error processing tile ${url}:`, error);
+		} else {
+			const request = this.pendingRequests.get(url);
+			if (request) {
+				request.resolve({ data: new Uint8Array(buffer) });
+				this.pendingRequests.delete(url);
+			}
+		}
+	};
+
+	private handleError = (e: ErrorEvent) => {
+		console.error('Worker error:', e);
+		this.pendingRequests.forEach((request) => {
+			request.reject(new Error('Worker error occurred'));
+		});
+		this.pendingRequests.clear();
+	};
 }
+
+const worker = new Worker(new URL('./worker.ts', import.meta.url), {
+	type: 'module',
+});
+const workerProtocol = new WorkerProtocol(worker);
 
 type Options = {
-    attribution?: string;
-    maxzoom?: number;
-    minzoom?: number;
-    tileUrl?: string;
+	attribution?: string;
+	maxzoom?: number;
+	minzoom?: number;
+	tileUrl?: string;
 };
-
-function loadPng(url: string): Promise<Uint8Array> {
-    return new Promise((resolve, reject) => {
-        const image = new Image();
-        image.crossOrigin = '';
-        image.onload = () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = image.width;
-            canvas.height = image.height;
-
-            const context = canvas.getContext('2d', {
-                willReadFrequently: true,
-            })!;
-
-            // 地理院標高タイルを採用している一部のタイルは無効値が透過されていることがある
-            // 透過されている場合に無効値にフォールバックさせる=rgb(128,0,0)で塗りつぶす
-            context.fillStyle = 'rgb(128,0,0)';
-            context.fillRect(0, 0, canvas.width, canvas.height);
-
-            context.drawImage(image, 0, 0);
-            const imageData = context.getImageData(
-                0,
-                0,
-                canvas.width,
-                canvas.height,
-            );
-            for (let i = 0; i < imageData.data.length / 4; i++) {
-                const tRGB = gsidem2terrainrgb(
-                    imageData.data[i * 4],
-                    imageData.data[i * 4 + 1],
-                    imageData.data[i * 4 + 2],
-                );
-                imageData.data[i * 4] = tRGB[0];
-                imageData.data[i * 4 + 1] = tRGB[1];
-                imageData.data[i * 4 + 2] = tRGB[2];
-            }
-            const png = encode(imageData);
-            resolve(png);
-        };
-        image.onerror = (e) => {
-            reject(e);
-        };
-        image.src = url;
-    });
-}
 
 /**
  * 地理院標高タイルを利用したtype=raster-demのsourceを返す
@@ -102,29 +123,25 @@ function loadPng(url: string): Promise<Uint8Array> {
  * });
  */
 export const useGsiTerrainSource = (
-    addProtocol: typeof maplibregl.addProtocol,
-    options: Options = {},
+	addProtocol: typeof maplibregl.addProtocol,
+	options: Options = {},
 ): RasterDEMSourceSpecification => {
-    addProtocol('gsidem', async (params, abortController) => {
-        const imageUrl = params.url.replace('gsidem://', '');
-        const png = await loadPng(imageUrl).catch((e) => {
-            abortController.abort();
-            throw e.message;
-        });
-        return { data: png };
-    });
-    const tileUrl =
-        options.tileUrl ??
-        `https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png`;
+	addProtocol('gsidem', (params, abortController) => {
+		const urlWithoutProtocol = params.url.replace('gsidem://', '');
+		return workerProtocol.request(urlWithoutProtocol, abortController);
+	});
+	const tileUrl =
+		options.tileUrl ??
+		`https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png`;
 
-    return {
-        type: 'raster-dem',
-        tiles: [`gsidem://${tileUrl}`],
-        tileSize: 256,
-        minzoom: options.minzoom ?? 1,
-        maxzoom: options.maxzoom ?? 14,
-        attribution:
-            options.attribution ??
-            '<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>',
-    };
+	return {
+		type: 'raster-dem',
+		tiles: [`gsidem://${tileUrl}`],
+		tileSize: 256,
+		minzoom: options.minzoom ?? 1,
+		maxzoom: options.maxzoom ?? 14,
+		attribution:
+			options.attribution ??
+			'<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>',
+	};
 };
