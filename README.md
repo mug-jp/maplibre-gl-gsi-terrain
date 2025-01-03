@@ -23,7 +23,6 @@ npm install maplibre-gl-gsi-terrain
 ```typescript
 import maplibregl from 'maplibre-gl';
 import { useGsiTerrainSource } from 'maplibre-gl-gsi-terrain';
-const gsiTerrainSource = useGsiTerrainSource(maplibregl.addProtocol);
 
 const gsiTerrainSource = useGsiTerrainSource(maplibregl.addProtocol);
 const map = new maplibregl.Map({
