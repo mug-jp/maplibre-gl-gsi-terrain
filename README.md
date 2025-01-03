@@ -38,6 +38,27 @@ new Map({
 | `minzoom` | `number` | 最小ズームレベル、デフォルトは`1` |
 | `attribution` | `string` | デフォルトは`地理院タイル` |
 
+### `ProtocolAction`を直接利用する
+
+`getGsiDemProtocolAction()`を利用することで、`ProtocolAction`を取得できます。通常のケースでは`useGsiTerrainSource()`の利用を推奨します。
+
+```typescript
+import maplibregl, { RasterDEMSourceSpecification } from 'maplibre-gl';
+import { getGsiDemProtocolAction } from '../src/terrain.ts';
+
+const protocolAction = getGsiDemProtocolAction('gsidem');
+maplibregl.addProtocol('gsidem', protocolAction);
+const gsiTerrainSource: RasterDEMSourceSpecification = {
+    type: 'raster-dem',
+    tiles: ['gsidem://https://tiles.gsj.jp/tiles/elev/mixed/{z}/{y}/{x}.png'],
+    tileSize: 256,
+    minzoom: 1,
+    maxzoom: 17,
+    attribution:
+    '<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>',
+};
+```
+
 ### 産総研シームレス標高タイルを利用する例
 
 ```typescript

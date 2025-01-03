@@ -1,7 +1,9 @@
-import type { RasterDEMSourceSpecification } from 'maplibre-gl';
+import type {
+	AddProtocolAction,
+	RasterDEMSourceSpecification,
+} from 'maplibre-gl';
 import maplibregl from 'maplibre-gl';
 import { workerCode } from './worker';
-
 
 const loadImage = async (
 	src: string,
@@ -127,10 +129,10 @@ export const useGsiTerrainSource = (
 	addProtocol: typeof maplibregl.addProtocol,
 	options: Options = {},
 ): RasterDEMSourceSpecification => {
-	addProtocol('gsidem', (params, abortController) => {
-		const urlWithoutProtocol = params.url.replace('gsidem://', '');
-		return workerProtocol.request(urlWithoutProtocol, abortController);
-	});
+	const protocolName = 'gsidem';
+	const protocolAction = getGsiDemProtocolAction(protocolName);
+	addProtocol(protocolName, protocolAction);
+
 	const tileUrl =
 		options.tileUrl ??
 		`https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png`;
@@ -144,5 +146,31 @@ export const useGsiTerrainSource = (
 		attribution:
 			options.attribution ??
 			'<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>',
+	};
+};
+
+/**
+ * 地理院標高タイルを利用してtype=raster-demのsourceを生成するためのProtocolActionを返す
+ * @param customProtocol - 任意のプロトコル名（例: 'gsidem'）
+ * @returns {AddProtocolAction} - ProtocolAction
+ * @example
+ * const protocolAction = getGsiDemProtocolAction('gsidem');
+ * addProtocol('gsidem', protocolAction);
+ * const rasterDemSource = {
+ *   type: 'raster-dem',
+ *   tiles: ['gsidem://https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png'],
+ *   tileSize: 256,
+ *   minzoom: 1,
+ *   maxzoom: 14,
+ *   attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>',
+ * };
+ * const map = new Map({container: 'app', style: {sources: {terrain: gsiTerrainSource}}});
+ */
+export const getGsiDemProtocolAction = (
+	customProtocol: string,
+): AddProtocolAction => {
+	return (params, abortController) => {
+		const urlWithoutProtocol = params.url.replace(customProtocol + '://', '');
+		return workerProtocol.request(urlWithoutProtocol, abortController);
 	};
 };
