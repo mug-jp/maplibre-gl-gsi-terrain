@@ -74,6 +74,19 @@ const map = new maplibregl.Map({
 | `minzoom` | `number` | 最小ズームレベル、デフォルトは`1` |
 | `attribution` | `string` | デフォルトは`地理院タイル` |
 
+### 産総研シームレス標高タイルを利用する例
+
+```typescript
+import maplibreGl from 'maplibre-gl';
+import { useGsiTerrainSource } from 'maplibre-gl-gsi-terrain';
+
+const gsiTerrainSource = useGsiTerrainSource(maplibreGl.addProtocol, {
+    tileUrl: 'https://tiles.gsj.jp/tiles/elev/mixed/{z}/{y}/{x}.png',
+    maxzoom: 17,
+    attribution: '<a href="https://gbank.gsj.jp/seamless/elev/">産総研シームレス標高タイル</a>'
+});
+```
+
 ### `ProtocolAction`を直接利用する
 
 `getGsiDemProtocolAction()`を利用することで、`ProtocolAction`を取得できます。通常のケースでは`useGsiTerrainSource()`の利用を推奨します。
@@ -93,19 +106,6 @@ const gsiTerrainSource: RasterDEMSourceSpecification = {
     attribution:
     '<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>',
 };
-```
-
-### 産総研シームレス標高タイルを利用する例
-
-```typescript
-import maplibreGl from 'maplibre-gl';
-import { useGsiTerrainSource } from 'maplibre-gl-gsi-terrain';
-
-const gsiTerrainSource = useGsiTerrainSource(maplibreGl.addProtocol, {
-    tileUrl: 'https://tiles.gsj.jp/tiles/elev/mixed/{z}/{y}/{x}.png',
-    maxzoom: 17,
-    attribution: '<a href="https://gbank.gsj.jp/seamless/elev/">産総研シームレス標高タイル</a>'
-});
 ```
 
 ## MapLibre GL JS v3以前を利用する場合
