@@ -2,57 +2,64 @@
 
 ![](./screenshot.png)
 
-## 使い方
+## インストール
 
 ### CDN経由
 
 ```html
-<head>
-    <script src="https://unpkg.com/maplibre-gl@5.0.0/dist/maplibre-gl.js"></script>
-    <link href="https://unpkg.com/maplibre-gl@5.0.0/dist/maplibre-gl.css" rel="stylesheet"/>
-</head>
-<body>
-    <div id="map"></div>
-    <script type="module">
-        import { useGsiTerrainSource } from 'https://www.unpkg.com/maplibre-gl-gsi-terrain@2.1.0/dist/terrain.js';
+<script type="module">
+    import { useGsiTerrainSource } from 'https://www.unpkg.com/maplibre-gl-gsi-terrain@2.1.0/dist/terrain.js';
+</script>
+```
 
-        const gsiTerrainSource = useGsiTerrainSource(maplibregl.addProtocol);
-        const map = new maplibregl.Map({
-            container: 'map',
-            style: {
-                version: 8,
-                center: [139.6917, 35.6895],
-                zoom: 10,
-                pitch: 30,
-                maxPitch: 100,
-                sources: {
-                    terrain: gsiTerrainSource,
-                    seamlessphoto: {
-                        type: 'raster',
-                        tiles: [
-                            'https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg',
-                        ],
-                        maxzoom: 18,
-                        tileSize: 256,
-                        attribution:
-                            '<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>',
-                    },
-                },
-                layers: [
-                    {
-                        id: 'seamlessphoto',
-                        source: 'seamlessphoto',
-                        type: 'raster',
-                    },
+### npm module として利用する
+
+```sh
+npm install maplibre-gl-gsi-terrain
+```
+
+## 使い方
+
+```typescript
+import maplibregl from 'maplibre-gl';
+import { useGsiTerrainSource } from 'maplibre-gl-gsi-terrain';
+const gsiTerrainSource = useGsiTerrainSource(maplibregl.addProtocol);
+
+const gsiTerrainSource = useGsiTerrainSource(maplibregl.addProtocol);
+const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+        version: 8,
+        center: [139.6917, 35.6895],
+        zoom: 10,
+        pitch: 30,
+        maxPitch: 100,
+        sources: {
+            terrain: gsiTerrainSource,
+            seamlessphoto: {
+                type: 'raster',
+                tiles: [
+                    'https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg',
                 ],
-                terrain: {
-                    source: 'terrain',
-                    exaggeration: 1.2,
-                },
+                maxzoom: 18,
+                tileSize: 256,
+                attribution:
+                    '<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>',
             },
-        });
-    </script>
-</body>
+        },
+        layers: [
+            {
+                id: 'seamlessphoto',
+                source: 'seamlessphoto',
+                type: 'raster',
+            },
+        ],
+        terrain: {
+            source: 'terrain',
+            exaggeration: 1.2,
+        },
+    },
+});
 ```
 
 `useGsiTerrainSource()`は第2引数でオプションを受け取ります。
@@ -63,18 +70,6 @@
 | `maxzoom` | `number` | 最大ズームレベル、デフォルトは`14` |
 | `minzoom` | `number` | 最小ズームレベル、デフォルトは`1` |
 | `attribution` | `string` | デフォルトは`地理院タイル` |
-
-### npm module として利用する
-
-```sh
-npm install maplibre-gl-gsi-terrain
-```
-
-```typescript
-import maplibregl from 'maplibre-gl';
-import { useGsiTerrainSource } from 'maplibre-gl-gsi-terrain';
-const gsiTerrainSource = useGsiTerrainSource(maplibregl.addProtocol);
-```
 
 ### `ProtocolAction`を直接利用する
 
