@@ -11,5 +11,12 @@ export default defineConfig({
 			fileName: 'terrain',
 		},
 	},
-	base: './',
+	test: {
+		browser: {
+			provider: 'playwright', // or 'webdriverio'
+			enabled: true,
+			name: 'chromium', // browser name is required
+			headless: true,
+		},
+	},
 });

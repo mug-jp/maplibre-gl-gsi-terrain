@@ -1,40 +1,40 @@
-name: Example
+name: github pages
 
 on:
   push:
     branches:
       - master
+    paths:
+      - 'src/**'
+      - 'example/**'
   workflow_dispatch:
 
 jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: write
+  build-deploy:
+    runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v2
+
+      # Node.js環境のセットアップを行う
       - name: setup node
         uses: actions/setup-node@v1
         with:
-          node-version: '20.x'
+          node-version: '22.x'
+
+      - name: install pnpm
+        run: npm install -g pnpm
 
       - name: install
-        run: npm ci
+        run: pnpm install
 
       - name: build
-        run: npm run build
+        run: pnpm build
 
       - name: add nojekyll
-        run: touch ./dist/.nojekyll
+        run: touch ./demo/.nojekyll
 
-      - name: replace './src/terrain.ts' of index.html to './terrain.js'
-        run: sed -e 's/\.\/src\/terrain\.ts/\.\/terrain\.js/g' ./index.html > ./dist/index.html
-
-      # deploy files to gh-pages
-      - name: Deploy to gh-pages
+      - name: deploy
         uses: peaceiris/actions-gh-pages@v3
         with:
-          personal_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./dist
-          publish_branch: gh-pages
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./demo
