@@ -141,6 +141,7 @@ export const useGsiTerrainSource = (
 		type: 'raster-dem',
 		tiles: [`gsidem://${tileUrl}`],
 		tileSize: 256,
+		encoding: 'terrarium',
 		minzoom: options.minzoom ?? 1,
 		maxzoom: options.maxzoom ?? 14,
 		attribution:

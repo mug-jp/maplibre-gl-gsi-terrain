@@ -8,6 +8,7 @@ const gsiTerrainSource: RasterDEMSourceSpecification = {
 	type: 'raster-dem',
 	tiles: ['gsidem://https://tiles.gsj.jp/tiles/elev/mixed/{z}/{y}/{x}.png'],
 	tileSize: 256,
+	encoding: 'terrarium',
 	minzoom: 1,
 	maxzoom: 17,
 	attribution:
