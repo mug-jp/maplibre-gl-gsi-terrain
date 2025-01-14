@@ -103,6 +103,7 @@ const gsiTerrainSource: RasterDEMSourceSpecification = {
     tileSize: 256,
     minzoom: 1,
     maxzoom: 17,
+    encoding: 'terrarium',
     attribution:
     '<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>',
 };
