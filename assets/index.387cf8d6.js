@@ -751,22 +751,28 @@ const fsSource = \`#version 300 es
         vec4 color = texture(u_height_map, v_tex_coord);
         vec3 rgb = color.rgb * 255.0;
 
-        // terrainRGB\u306B\u304A\u3051\u308B\u9AD8\u5EA60\u306E\u8272
-        vec4 zero_elevation_color = vec4(1.0, 134.0, 160.0, 255.0) / 255.0;
-
-        float rgb_value = dot(rgb, vec3(65536.0, 256.0, 1.0));
-        float height = mix(rgb_value, rgb_value - 16777216.0, step(8388608.0, rgb_value)) * 0.01;
-        height = (height + 10000.0) * 10.0;
+        // terrarium\u306B\u304A\u3051\u308B\u9AD8\u5EA60\u306E\u8272
+        vec4 zero_elevation_color = vec4(128.0, 0.0, 0.0, 255.0) / 255.0;
 
         // \u5730\u7406\u9662\u6A19\u9AD8\u30BF\u30A4\u30EB\u306E\u7121\u52B9\u5024\u307E\u305F\u306F\u5B8C\u5168\u306B\u900F\u660E\u306A\u30D4\u30AF\u30BB\u30EB\u306E\u5224\u5B9A
         bool is_valid = (rgb.r != 128.0 || rgb.g != 0.0 || rgb.b != 0.0) && color.a != 0.0;
 
+        float rgb_value = dot(rgb, vec3(65536.0, 256.0, 1.0));
+        float height = mix(rgb_value, rgb_value - 16777216.0, step(8388608.0, rgb_value)) * 0.01;
+
+        // terrarium\u306E\u6A19\u9AD8\u5024\u30A8\u30F3\u30B3\u30FC\u30C9
+        height += 32768.0;
+        float r = floor(height / 256.0);
+        float g = floor(mod(height, 256.0));
+        float b = floor((height - floor(height)) * 256.0);
+
+        // terrarium\u306E\u6A19\u9AD8\u5024\u3092\u8272\u306B\u5909\u63DB
         fragColor = mix(
             zero_elevation_color,
             vec4(
-                floor(height / 65536.0) / 255.0,
-                floor(mod(height / 256.0, 256.0)) / 255.0,
-                mod(height, 256.0) / 255.0,
+                r / 255.0,
+                g / 255.0,
+                b / 255.0,
                 1.0
             ),
             float(is_valid)
@@ -883,4 +889,4 @@ self.onmessage = async (e) => {
 		}
 	}
 };
-`,Yp=async(Kt,dt)=>{let ut;try{ut=await fetch(Kt,{signal:dt})}catch(Yt){return dt.aborted||console.error(`Failed to fetch image: ${Yt}`),null}return ut.ok?await createImageBitmap(await ut.blob()):null};class Jp{constructor(dt){cl(this,"worker");cl(this,"pendingRequests");cl(this,"handleMessage",dt=>{const{url:ut,buffer:Yt,error:At}=dt.data;if(At)console.error(`Error processing tile ${ut}:`,At);else{const Jt=this.pendingRequests.get(ut);Jt&&(Jt.resolve({data:new Uint8Array(Yt)}),this.pendingRequests.delete(ut))}});cl(this,"handleError",dt=>{console.error("Worker error:",dt),this.pendingRequests.forEach(ut=>{ut.reject(new Error("Worker error occurred"))}),this.pendingRequests.clear()});this.worker=dt,this.pendingRequests=new Map,this.worker.addEventListener("message",this.handleMessage),this.worker.addEventListener("error",this.handleError)}async request(dt,ut){const Yt=await Yp(dt,ut.signal);return Yt?new Promise((At,Jt)=>{this.pendingRequests.set(dt,{resolve:At,reject:Jt,controller:ut}),this.worker.postMessage({image:Yt,url:dt}),ut.signal.onabort=()=>{this.pendingRequests.delete(dt),Jt(new Error("Request aborted"))}}):Promise.reject(new Error("Failed to load image"))}}const Qp=new Blob([Kp],{type:"application/javascript"}),ef=new Worker(URL.createObjectURL(Qp)),tf=new Jp(ef),rf=Kt=>(dt,ut)=>{const Yt=dt.url.replace(Kt+"://","");return tf.request(Yt,ut)},nf=rf("gsidem");gd.addProtocol("gsidem",nf);const sf={type:"raster-dem",tiles:["gsidem://https://tiles.gsj.jp/tiles/elev/mixed/{z}/{y}/{x}.png"],tileSize:256,minzoom:1,maxzoom:17,attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html">\u5730\u7406\u9662\u30BF\u30A4\u30EB</a>'};new gd.Map({container:"app",zoom:13,center:[138.7,35.3],minZoom:5,maxZoom:18,pitch:70,maxPitch:100,style:{version:8,projection:{type:"globe"},sources:{seamlessphoto:{type:"raster",tiles:["https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg"],maxzoom:18,tileSize:256,attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html">\u5730\u7406\u9662\u30BF\u30A4\u30EB</a>'},terrain:sf},layers:[{id:"seamlessphoto",source:"seamlessphoto",type:"raster"}],terrain:{source:"terrain",exaggeration:1.2}}});
+`,Yp=async(Kt,dt)=>{let ut;try{ut=await fetch(Kt,{signal:dt})}catch(Yt){return dt.aborted||console.error(`Failed to fetch image: ${Yt}`),null}return ut.ok?await createImageBitmap(await ut.blob()):null};class Jp{constructor(dt){cl(this,"worker");cl(this,"pendingRequests");cl(this,"handleMessage",dt=>{const{url:ut,buffer:Yt,error:At}=dt.data;if(At)console.error(`Error processing tile ${ut}:`,At);else{const Jt=this.pendingRequests.get(ut);Jt&&(Jt.resolve({data:new Uint8Array(Yt)}),this.pendingRequests.delete(ut))}});cl(this,"handleError",dt=>{console.error("Worker error:",dt),this.pendingRequests.forEach(ut=>{ut.reject(new Error("Worker error occurred"))}),this.pendingRequests.clear()});this.worker=dt,this.pendingRequests=new Map,this.worker.addEventListener("message",this.handleMessage),this.worker.addEventListener("error",this.handleError)}async request(dt,ut){const Yt=await Yp(dt,ut.signal);return Yt?new Promise((At,Jt)=>{this.pendingRequests.set(dt,{resolve:At,reject:Jt,controller:ut}),this.worker.postMessage({image:Yt,url:dt}),ut.signal.onabort=()=>{this.pendingRequests.delete(dt),Jt(new Error("Request aborted"))}}):Promise.reject(new Error("Failed to load image"))}}const Qp=new Blob([Kp],{type:"application/javascript"}),ef=new Worker(URL.createObjectURL(Qp)),tf=new Jp(ef),rf=Kt=>(dt,ut)=>{const Yt=dt.url.replace(Kt+"://","");return tf.request(Yt,ut)},nf=rf("gsidem");gd.addProtocol("gsidem",nf);const sf={type:"raster-dem",tiles:["gsidem://https://tiles.gsj.jp/tiles/elev/mixed/{z}/{y}/{x}.png"],tileSize:256,encoding:"terrarium",minzoom:1,maxzoom:17,attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html">\u5730\u7406\u9662\u30BF\u30A4\u30EB</a>'};new gd.Map({container:"app",zoom:13,center:[138.7,35.3],minZoom:5,maxZoom:18,pitch:70,maxPitch:100,style:{version:8,projection:{type:"globe"},sources:{seamlessphoto:{type:"raster",tiles:["https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg"],maxzoom:18,tileSize:256,attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html">\u5730\u7406\u9662\u30BF\u30A4\u30EB</a>'},terrain:sf},layers:[{id:"seamlessphoto",source:"seamlessphoto",type:"raster"}],terrain:{source:"terrain",exaggeration:1.2}}});
