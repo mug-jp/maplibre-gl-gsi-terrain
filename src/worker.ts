@@ -25,22 +25,28 @@ const fsSource = \`#version 300 es
         vec4 color = texture(u_height_map, v_tex_coord);
         vec3 rgb = color.rgb * 255.0;
 
-        // terrainRGBにおける高度0の色
-        vec4 zero_elevation_color = vec4(1.0, 134.0, 160.0, 255.0) / 255.0;
-
-        float rgb_value = dot(rgb, vec3(65536.0, 256.0, 1.0));
-        float height = mix(rgb_value, rgb_value - 16777216.0, step(8388608.0, rgb_value)) * 0.01;
-        height = (height + 10000.0) * 10.0;
+        // terrariumにおける高度0の色
+        vec4 zero_elevation_color = vec4(128.0, 0.0, 0.0, 255.0) / 255.0;
 
         // 地理院標高タイルの無効値または完全に透明なピクセルの判定
         bool is_valid = (rgb.r != 128.0 || rgb.g != 0.0 || rgb.b != 0.0) && color.a != 0.0;
 
+        float rgb_value = dot(rgb, vec3(65536.0, 256.0, 1.0));
+        float height = mix(rgb_value, rgb_value - 16777216.0, step(8388608.0, rgb_value)) * 0.01;
+
+        // terrariumの標高値エンコード
+        height += 32768.0;
+        float r = floor(height / 256.0);
+        float g = floor(mod(height, 256.0));
+        float b = floor((height - floor(height)) * 256.0);
+
+        // terrariumの標高値を色に変換
         fragColor = mix(
             zero_elevation_color,
             vec4(
-                floor(height / 65536.0) / 255.0,
-                floor(mod(height / 256.0, 256.0)) / 255.0,
-                mod(height, 256.0) / 255.0,
+                r / 255.0,
+                g / 255.0,
+                b / 255.0,
                 1.0
             ),
             float(is_valid)
