@@ -3,7 +3,6 @@ import type {
 	RasterDEMSourceSpecification,
 } from 'maplibre-gl';
 import maplibregl from 'maplibre-gl';
-import { workerCode } from './worker';
 
 const loadImage = async (
 	src: string,
@@ -86,8 +85,9 @@ class WorkerProtocol {
 	};
 }
 
-const blob = new Blob([workerCode], { type: 'application/javascript' });
-const worker = new Worker(URL.createObjectURL(blob));
+const worker = new Worker(new URL('./worker.ts', import.meta.url), {
+	type: 'module',
+});
 const workerProtocol = new WorkerProtocol(worker);
 
 type Options = {
