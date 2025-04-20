@@ -1,5 +1,6 @@
 // インラインWebワーカーのコードを文字列で定義
-const vsSource = `#version 300 es
+export const workerCode = `
+const vsSource = \`#version 300 es
     in vec4 a_position;
     out vec2 v_tex_coord;
 
@@ -7,9 +8,9 @@ const vsSource = `#version 300 es
         gl_Position = a_position;
         v_tex_coord = vec2(a_position.x * 0.5 + 0.5, a_position.y * -0.5 + 0.5);
     }
-`;
+\`;
 
-const fsSource = `#version 300 es
+const fsSource = \`#version 300 es
     #ifdef GL_FRAGMENT_PRECISION_HIGH
     precision highp float;
     #else
@@ -51,23 +52,23 @@ const fsSource = `#version 300 es
             float(is_valid)
         );
     }
-`;
+\`;
 
-let gl: WebGL2RenderingContext | null = null;
-let program: WebGLProgram | null = null;
-let positionBuffer: WebGLBuffer | null = null;
-let heightMapLocation: WebGLUniformLocation | null = null;
+let gl = null;
+let program = null;
+let positionBuffer = null;
+let heightMapLocation = null;
 
-const initWebGL = (canvas: OffscreenCanvas) => {
+const initWebGL = (canvas) => {
 	gl = canvas.getContext('webgl2');
 	if (!gl) {
 		throw new Error('WebGL not supported');
 	}
 
 	const loadShader = (
-		gl: WebGL2RenderingContext,
-		type: number,
-		source: string,
+		gl,
+		type,
+		source,
 	) => {
 		const shader = gl.createShader(type);
 		if (!shader) {
@@ -162,3 +163,4 @@ self.onmessage = async (e) => {
 		}
 	}
 };
+`;
