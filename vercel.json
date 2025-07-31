@@ -1,0 +1,27 @@
+{
+	"version": 2,
+	"buildCommand": "npm run build:vercel",
+	"outputDirectory": "demo",
+	"routes": [
+		{
+			"src": "/(.*)",
+			"dest": "/index.html"
+		}
+	],
+	"functions": {
+		"demo/**/*.js": {
+			"maxDuration": 30
+		}
+	},
+	"headers": [
+		{
+			"source": "/(.*)",
+			"headers": [
+				{
+					"key": "Cache-Control",
+					"value": "public, max-age=0, must-revalidate"
+				}
+			]
+		}
+	]
+}
