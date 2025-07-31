@@ -1721,6 +1721,26 @@ const setupEventHandlers = () => {
             e.preventDefault();
             loadNotoCoastData();
         }
+        // 富士山フライトプラン読み込み
+        if (e.ctrlKey && e.key === 'f') {
+            e.preventDefault();
+            loadFujiMountainFlightPlan();
+        }
+        // 大阪エリアフライトプラン読み込み
+        if (e.ctrlKey && e.key === 'o') {
+            e.preventDefault();
+            loadOsakaCastleFlightPlan();
+        }
+        // 札幌エリアフライトプラン読み込み
+        if (e.ctrlKey && e.key === 's') {
+            e.preventDefault();
+            loadSapporoClockTowerFlightPlan();
+        }
+        // 東京タワーフライトプラン読み込み（デフォルトに戻す）
+        if (e.ctrlKey && e.key === 't') {
+            e.preventDefault();
+            loadTokyoTowerFlightPlan();
+        }
     });
 };
 
@@ -1881,6 +1901,111 @@ const importFlightPlan = () => {
 };
 
 // エッフェル塔関連の関数・ショートカットは削除
+
+// 富士山フライトプラン読み込み
+const loadFujiMountainFlightPlan = async () => {
+    try {
+        const response = await fetch('./data/fuji-mountain-flight-plan.json');
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        
+        const flightPlanData: FlightPlanData = await response.json();
+        currentFlightPlan = flightPlanData.phases;
+        currentFlightPlanName = flightPlanData.name;
+        currentFlightPlanDescription = flightPlanData.description;
+        
+        addFlightLog('システム', '富士山フライトプラン', '富士山点検フライトプランを読み込みました', 'success');
+        showToast('富士山フライトプランを読み込みました', 'success');
+        
+        // 地図を富士山の位置に移動
+        map.flyTo({
+            center: [138.7275, 35.3606],
+            zoom: 14,
+            duration: 2000
+        });
+    } catch (error) {
+        console.error('富士山フライトプラン読み込みエラー:', error);
+        addFlightLog('エラー', '富士山フライトプラン', 'フライトプランの読み込みに失敗しました', 'error');
+        showToast('富士山フライトプランの読み込みに失敗しました', 'error');
+    }
+};
+
+// 大阪エリアフライトプラン読み込み
+const loadOsakaCastleFlightPlan = async () => {
+    try {
+        const response = await fetch('./data/osaka-castle-flight-plan.json');
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        
+        const flightPlanData: FlightPlanData = await response.json();
+        currentFlightPlan = flightPlanData.phases;
+        currentFlightPlanName = flightPlanData.name;
+        currentFlightPlanDescription = flightPlanData.description;
+        
+        addFlightLog('システム', '大阪エリアフライトプラン', '大阪エリア点検フライトプランを読み込みました', 'success');
+        showToast('大阪エリアフライトプランを読み込みました', 'success');
+        
+        // 地図を大阪エリアの位置に移動
+        map.flyTo({
+            center: [135.5022, 34.6873],
+            zoom: 16,
+            duration: 2000
+        });
+    } catch (error) {
+        console.error('大阪エリアフライトプラン読み込みエラー:', error);
+        addFlightLog('エラー', '大阪エリアフライトプラン', 'フライトプランの読み込みに失敗しました', 'error');
+        showToast('大阪エリアフライトプランの読み込みに失敗しました', 'error');
+    }
+};
+
+// 札幌エリアフライトプラン読み込み
+const loadSapporoClockTowerFlightPlan = async () => {
+    try {
+        const response = await fetch('./data/sapporo-clock-tower-flight-plan.json');
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        
+        const flightPlanData: FlightPlanData = await response.json();
+        currentFlightPlan = flightPlanData.phases;
+        currentFlightPlanName = flightPlanData.name;
+        currentFlightPlanDescription = flightPlanData.description;
+        
+        addFlightLog('システム', '札幌エリアフライトプラン', '札幌エリア点検フライトプランを読み込みました', 'success');
+        showToast('札幌エリアフライトプランを読み込みました', 'success');
+        
+        // 地図を札幌エリアの位置に移動
+        map.flyTo({
+            center: [141.3515, 43.0594],
+            zoom: 16,
+            duration: 2000
+        });
+    } catch (error) {
+        console.error('札幌エリアフライトプラン読み込みエラー:', error);
+        addFlightLog('エラー', '札幌エリアフライトプラン', 'フライトプランの読み込みに失敗しました', 'error');
+        showToast('札幌エリアフライトプランの読み込みに失敗しました', 'error');
+    }
+};
+
+// 東京タワーフライトプラン読み込み（デフォルトに戻す）
+const loadTokyoTowerFlightPlan = async () => {
+    try {
+        // デフォルトの東京タワーフライトプランを設定
+        currentFlightPlan = defaultFlightPlan;
+        currentFlightPlanName = '東京タワー点検フライトプラン';
+        currentFlightPlanDescription = '東京タワー周辺の包括的点検フライトプラン';
+        
+        addFlightLog('システム', '東京タワーフライトプラン', '東京タワー点検フライトプランを読み込みました', 'success');
+        showToast('東京タワーフライトプランを読み込みました', 'success');
+        
+        // 地図を東京タワーの位置に移動
+        map.flyTo({
+            center: [139.7454, 35.6586],
+            zoom: 15,
+            duration: 2000
+        });
+    } catch (error) {
+        console.error('東京タワーフライトプラン読み込みエラー:', error);
+        addFlightLog('エラー', '東京タワーフライトプラン', 'フライトプランの読み込みに失敗しました', 'error');
+        showToast('東京タワーフライトプランの読み込みに失敗しました', 'error');
+    }
+};
 
 // 能登半島山間部データ読み込み
 const loadNotoCoastData = async () => {
