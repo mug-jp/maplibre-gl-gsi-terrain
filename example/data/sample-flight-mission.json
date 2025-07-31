@@ -1,0 +1,90 @@
+{
+  "id": "mission-tokyo-tower-001",
+  "name": "東京タワー点検ミッション",
+  "description": "東京タワー周辺の包括的点検ミッション",
+  "created": "2025-01-15T10:00:00Z",
+  "modified": "2025-01-15T10:00:00Z",
+  "settings": {
+    "homePosition": {
+      "longitude": 139.7454,
+      "latitude": 35.6586,
+      "altitude": 0
+    },
+    "maxAltitude": 200,
+    "maxDistance": 1000,
+    "returnToHomeAltitude": 100,
+    "emergencyAction": "rtl",
+    "geofence": {
+      "type": "circle",
+      "coordinates": [[139.7454, 35.6586]],
+      "enabled": true
+    }
+  },
+  "waypoints": [
+    {
+      "id": "wp-001",
+      "name": "離陸地点",
+      "type": "waypoint",
+      "source": "mission",
+      "position": {
+        "longitude": 139.7454,
+        "latitude": 35.6586,
+        "altitude": 100
+      },
+      "timestamp": "2025-01-15T10:00:00Z",
+      "duration": 3000,
+      "flight": {
+        "speed": 5,
+        "heading": 0,
+        "action": "takeoff",
+        "waypointId": 1,
+        "sequenceNumber": 1
+      },
+      "telemetry": {
+        "batteryLevel": 85,
+        "signalStrength": -45,
+        "gpsAccuracy": 2.5
+      },
+      "metadata": {
+        "description": "東京タワー南側から離陸"
+      }
+    },
+    {
+      "id": "wp-002",
+      "name": "北東角点検",
+      "type": "waypoint",
+      "source": "mission",
+      "position": {
+        "longitude": 139.7456,
+        "latitude": 35.6588,
+        "altitude": 150
+      },
+      "timestamp": "2025-01-15T10:05:00Z",
+      "duration": 4000,
+      "flight": {
+        "speed": 3,
+        "heading": 45,
+        "action": "hover",
+        "waypointId": 2,
+        "sequenceNumber": 2
+      },
+      "telemetry": {
+        "batteryLevel": 82,
+        "signalStrength": -42,
+        "gpsAccuracy": 2.1
+      },
+      "metadata": {
+        "description": "北東角でホバリング・撮影"
+      }
+    }
+  ],
+  "metadata": {
+    "operatorId": "operator-001",
+    "aircraftModel": "DJI Mavic 3",
+    "totalDistance": 500,
+    "estimatedDuration": 30000,
+    "maxAltitude": 150,
+    "tags": ["点検", "東京タワー", "ドローン"],
+    "notes": "東京タワー周辺の定期点検ミッション"
+  }
+} 

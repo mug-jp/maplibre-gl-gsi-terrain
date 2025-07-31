@@ -1,0 +1,6 @@
+id,name,type,source,longitude,latitude,altitude,relativeAltitude,timestamp,duration,speed,heading,action,waypointId,sequenceNumber,batteryLevel,signalStrength,gpsAccuracy,temperature,humidity,windSpeed,windDirection,description
+drone-001,点検ドローン1,waypoint,manual,139.7454,35.6586,100,100,2025-01-15T10:00:00Z,3000,5,0,takeoff,1,1,85,-45,2.5,25,60,3,180,東京タワー南側から離陸
+drone-001,点検ドローン1,waypoint,manual,139.7456,35.6588,150,150,2025-01-15T10:05:00Z,4000,3,45,hover,2,2,82,-42,2.1,24,58,4,200,北東角でホバリング・撮影
+drone-001,点検ドローン1,waypoint,manual,139.7452,35.6588,150,150,2025-01-15T10:09:00Z,4000,3,315,hover,3,3,79,-40,2.3,25,59,3,190,北西角でホバリング・撮影
+drone-001,点検ドローン1,waypoint,manual,139.7452,35.6584,150,150,2025-01-15T10:13:00Z,4000,3,225,hover,4,4,76,-38,2.0,26,61,5,210,南西角でホバリング・撮影
+drone-001,点検ドローン1,waypoint,manual,139.7456,35.6584,150,150,2025-01-15T10:17:00Z,4000,3,135,hover,5,5,73,-35,2.2,25,60,4,195,南東角でホバリング・撮影 

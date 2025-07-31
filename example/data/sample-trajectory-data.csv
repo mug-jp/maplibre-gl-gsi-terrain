@@ -1,0 +1,6 @@
+id,name,type,source,longitude,latitude,altitude,relativeAltitude,timestamp,duration,speed,heading,action,waypointId,sequenceNumber,batteryLevel,signalStrength,gpsAccuracy,temperature,humidity,windSpeed,windDirection,description
+drone-001,点検ドローン1,trajectory_point,flight_log,139.7454,35.6586,0,0,2025-01-15T10:00:00Z,0,0,0,takeoff,0,0,100,-50,1.0,20,50,0,0,離陸開始
+drone-001,点検ドローン1,trajectory_point,flight_log,139.7454,35.6586,50,50,2025-01-15T10:00:30Z,30000,5,0,climb,0,0,98,-48,1.2,21,52,1,180,上昇中
+drone-001,点検ドローン1,trajectory_point,flight_log,139.7454,35.6586,100,100,2025-01-15T10:01:00Z,30000,0,0,hover,0,0,96,-46,1.5,22,54,2,185,ホバリング
+drone-001,点検ドローン1,trajectory_point,flight_log,139.7455,35.6587,100,100,2025-01-15T10:01:30Z,30000,3,45,move,0,0,94,-44,1.8,23,56,3,190,北東方向移動
+drone-001,点検ドローン1,trajectory_point,flight_log,139.7456,35.6588,150,150,2025-01-15T10:02:00Z,30000,0,45,hover,0,0,92,-42,2.0,24,58,4,195,北東角でホバリング 

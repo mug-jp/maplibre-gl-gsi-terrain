@@ -19,6 +19,12 @@ import {
     createFlightMission,
     calculateMissionDistance,
     estimateMissionDuration,
+    exportUnifiedFlightDataToCSV,
+    exportUnifiedFlightDataToGeoJSON,
+    exportFlightMissionToKML,
+    parseUnifiedFlightDataCSV,
+    parseUnifiedFlightDataGeoJSON,
+    parseFlightMissionJSON,
     type Point3D, 
     type MeshVertex,
     type DroneObject,
@@ -1356,6 +1362,366 @@ const setupEventHandlers = () => {
             console.error('FlightLogまたはToggleボタンが見つかりません');
         }
     });
+
+    // UnifiedFlightDataインポート
+    document.getElementById('importFlightData')?.addEventListener('click', () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.csv,.json,.geojson';
+        input.onchange = async (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (file) {
+                try {
+                    updateStatus('フライトデータ読み込み中...');
+                    const content = await file.text();
+                    let importedData: UnifiedFlightData[] = [];
+                    
+                    if (file.name.endsWith('.csv')) {
+                        importedData = parseUnifiedFlightDataCSV(content, file.name);
+                    } else if (file.name.endsWith('.json') || file.name.endsWith('.geojson')) {
+                        importedData = parseUnifiedFlightDataGeoJSON(content, file.name);
+                    }
+                    
+                    if (importedData.length > 0) {
+                        // UnifiedFlightDataをDroneObjectに変換して追加
+                        const convertedObjects = importedData.map(data => convertUnifiedToDroneObject(data));
+                        loadedObjects.push(...convertedObjects);
+                        updateDisplay();
+                        updateStatus(`フライトデータ読み込み完了: ${importedData.length}個のオブジェクト`);
+                        showToast(`フライトデータから${importedData.length}個のオブジェクトをインポートしました`, 'success');
+                        addFlightLog('データ管理', 'フライトデータインポート', `${file.name}から${importedData.length}個のオブジェクトを読み込み`, 'success');
+                    } else {
+                        showToast('フライトデータファイルからデータを読み込めませんでした', 'warning');
+                        addFlightLog('データ管理', 'フライトデータインポート', 'ファイルの読み込みに失敗', 'warning');
+                    }
+                } catch (error) {
+                    console.error('フライトデータインポートエラー:', error);
+                    showToast('フライトデータファイルの読み込みに失敗しました', 'error');
+                    addFlightLog('データ管理', 'フライトデータインポートエラー', `${file.name}の読み込みに失敗`, 'error');
+                    updateStatus('フライトデータインポートエラー');
+                }
+            }
+        };
+        input.click();
+    });
+
+    // フライトミッションインポート
+    document.getElementById('importMission')?.addEventListener('click', () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = async (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (file) {
+                try {
+                    updateStatus('フライトミッション読み込み中...');
+                    const content = await file.text();
+                    const mission = parseFlightMissionJSON(content, file.name);
+                    
+                    if (mission && mission.waypoints.length > 0) {
+                        // ミッションの各ウェイポイントをDroneObjectとして追加
+                        const waypointObjects: DroneObject[] = mission.waypoints.map((waypoint, index) => ({
+                            id: `mission_waypoint_${index + 1}`,
+                            name: `ミッション_${mission.name}_WP${index + 1}`,
+                            longitude: waypoint.position.longitude,
+                            latitude: waypoint.position.latitude,
+                            altitude: waypoint.position.altitude,
+                            type: 'flight',
+                            source: `mission_${file.name}`
+                        }));
+                        
+                        loadedObjects.push(...waypointObjects);
+                        updateDisplay();
+                        updateStatus(`フライトミッション読み込み完了: ${mission.waypoints.length}個のウェイポイント`);
+                        showToast(`ミッション「${mission.name}」から${mission.waypoints.length}個のウェイポイントをインポートしました`, 'success');
+                        addFlightLog('データ管理', 'ミッションインポート', `${mission.name}: ${mission.waypoints.length}個のウェイポイント`, 'success');
+                        
+                        // 地図をミッション開始地点に移動
+                        const firstWaypoint = mission.waypoints[0];
+                        map.flyTo({
+                            center: [firstWaypoint.position.longitude, firstWaypoint.position.latitude],
+                            zoom: 16,
+                            duration: 2000
+                        });
+                    } else {
+                        showToast('フライトミッションファイルからデータを読み込めませんでした', 'warning');
+                        addFlightLog('データ管理', 'ミッションインポート', 'ファイルの読み込みに失敗', 'warning');
+                    }
+                } catch (error) {
+                    console.error('フライトミッションインポートエラー:', error);
+                    showToast('フライトミッションファイルの読み込みに失敗しました', 'error');
+                    addFlightLog('データ管理', 'ミッションインポートエラー', `${file.name}の読み込みに失敗`, 'error');
+                    updateStatus('フライトミッションインポートエラー');
+                }
+            }
+        };
+        input.click();
+    });
+
+    // サンプルフライトデータ読み込み
+    document.getElementById('loadSampleFlightData')?.addEventListener('click', async () => {
+        try {
+            updateStatus('サンプルフライトデータ読み込み中...');
+            const response = await fetch('./data/sample-flight-data.csv');
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            
+            const content = await response.text();
+            const importedData = parseUnifiedFlightDataCSV(content, 'sample-flight-data.csv');
+            
+            if (importedData.length > 0) {
+                const convertedObjects = importedData.map(data => convertUnifiedToDroneObject(data));
+                loadedObjects.push(...convertedObjects);
+                updateDisplay();
+                updateStatus(`サンプルフライトデータ読み込み完了: ${importedData.length}個のオブジェクト`);
+                showToast(`サンプルフライトデータから${importedData.length}個のオブジェクトを読み込みました`, 'success');
+                addFlightLog('データ管理', 'サンプルフライトデータ', `${importedData.length}個のオブジェクトを読み込み`, 'success');
+            } else {
+                showToast('サンプルフライトデータの読み込みに失敗しました', 'error');
+                addFlightLog('データ管理', 'サンプルフライトデータ', 'データの読み込みに失敗', 'error');
+            }
+        } catch (error) {
+            console.error('サンプルフライトデータ読み込みエラー:', error);
+            showToast('サンプルフライトデータの読み込みに失敗しました', 'error');
+            addFlightLog('データ管理', 'サンプルフライトデータエラー', 'データの読み込みに失敗', 'error');
+            updateStatus('サンプルフライトデータ読み込みエラー');
+        }
+    });
+
+    // サンプル軌跡データ読み込み
+    document.getElementById('loadSampleTrajectory')?.addEventListener('click', async () => {
+        try {
+            updateStatus('サンプル軌跡データ読み込み中...');
+            const response = await fetch('./data/sample-trajectory-data.csv');
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            
+            const content = await response.text();
+            const importedData = parseUnifiedFlightDataCSV(content, 'sample-trajectory-data.csv');
+            
+            if (importedData.length > 0) {
+                const trajectoryData = importedData
+                    .filter(data => data.timestamp)
+                    .sort((a, b) => new Date(a.timestamp!).getTime() - new Date(b.timestamp!).getTime());
+                
+                const convertedObjects = trajectoryData.map((data, index) => {
+                    const obj = convertUnifiedToDroneObject(data);
+                    obj.name = `軌跡点_${index + 1}`;
+                    obj.type = 'flight';
+                    return obj;
+                });
+                
+                loadedObjects.push(...convertedObjects);
+                updateDisplay();
+                updateStatus(`サンプル軌跡データ読み込み完了: ${trajectoryData.length}個の軌跡点`);
+                showToast(`サンプル軌跡データから${trajectoryData.length}個の軌跡点を読み込みました`, 'success');
+                addFlightLog('データ管理', 'サンプル軌跡データ', `${trajectoryData.length}個の軌跡点を読み込み`, 'success');
+                
+                // 軌跡の開始地点に地図を移動
+                if (trajectoryData.length > 0) {
+                    const firstPoint = trajectoryData[0];
+                    map.flyTo({
+                        center: [firstPoint.position.longitude, firstPoint.position.latitude],
+                        zoom: 16,
+                        duration: 2000
+                    });
+                }
+            } else {
+                showToast('サンプル軌跡データの読み込みに失敗しました', 'error');
+                addFlightLog('データ管理', 'サンプル軌跡データ', 'データの読み込みに失敗', 'error');
+            }
+        } catch (error) {
+            console.error('サンプル軌跡データ読み込みエラー:', error);
+            showToast('サンプル軌跡データの読み込みに失敗しました', 'error');
+            addFlightLog('データ管理', 'サンプル軌跡データエラー', 'データの読み込みに失敗', 'error');
+            updateStatus('サンプル軌跡データ読み込みエラー');
+        }
+    });
+
+    // UnifiedFlightDataエクスポート
+    document.getElementById('exportFlightData')?.addEventListener('click', () => {
+        if (loadedObjects.length > 0) {
+            // DroneObjectをUnifiedFlightDataに変換
+            const unifiedData = loadedObjects.map(obj => convertDroneObjectToUnified(obj));
+            
+            // 複数形式での一括エクスポート
+            try {
+                // CSV形式
+                const csvData = exportUnifiedFlightDataToCSV(unifiedData);
+                downloadFile(csvData, 'unified_flight_data.csv', 'text/csv');
+                
+                // GeoJSON形式
+                const geoJsonData = exportUnifiedFlightDataToGeoJSON(unifiedData);
+                downloadFile(geoJsonData, 'unified_flight_data.geojson', 'application/geo+json');
+                
+                updateStatus('フライトデータエクスポート完了');
+                showToast('フライトデータをCSVとGeoJSON形式でエクスポートしました', 'success');
+                addFlightLog('データ管理', 'フライトデータエクスポート', `${unifiedData.length}個のオブジェクトをエクスポート`, 'success');
+            } catch (error) {
+                console.error('フライトデータエクスポートエラー:', error);
+                showToast('フライトデータのエクスポートに失敗しました', 'error');
+                addFlightLog('データ管理', 'フライトデータエクスポートエラー', 'エクスポートに失敗', 'error');
+            }
+        } else {
+            showToast('エクスポートするフライトデータがありません', 'warning');
+            addFlightLog('データ管理', 'フライトデータエクスポート', 'エクスポートするデータがありません', 'warning');
+        }
+    });
+
+    // フライトミッションエクスポート
+    document.getElementById('exportMission')?.addEventListener('click', () => {
+        if (loadedObjects.length > 0) {
+            // DroneObjectからフライトミッションを作成
+            const flightTypeObjects = loadedObjects.filter(obj => obj.type === 'flight' || obj.type === 'drone');
+            
+            if (flightTypeObjects.length > 0) {
+                try {
+                    const mission = createFlightMission(
+                        'Generated_Mission',
+                        'システム生成フライトミッション',
+                        flightTypeObjects.map(obj => convertDroneObjectToUnified(obj))
+                    );
+                    
+                    // KML形式でエクスポート
+                    const kmlData = exportFlightMissionToKML(mission);
+                    downloadFile(kmlData, `flight_mission_${new Date().toISOString().slice(0, 10)}.kml`, 'application/vnd.google-earth.kml+xml');
+                    
+                    // JSON形式でもエクスポート
+                    const jsonData = JSON.stringify(mission, null, 2);
+                    downloadFile(jsonData, `flight_mission_${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
+                    
+                    updateStatus('フライトミッションエクスポート完了');
+                    showToast('フライトミッションをKMLとJSON形式でエクスポートしました', 'success');
+                    addFlightLog('データ管理', 'ミッションエクスポート', `${mission.waypoints.length}個のウェイポイント`, 'success');
+                } catch (error) {
+                    console.error('フライトミッションエクスポートエラー:', error);
+                    showToast('フライトミッションのエクスポートに失敗しました', 'error');
+                    addFlightLog('データ管理', 'ミッションエクスポートエラー', 'エクスポートに失敗', 'error');
+                }
+            } else {
+                showToast('フライト関連のオブジェクトがありません', 'warning');
+                addFlightLog('データ管理', 'ミッションエクスポート', 'フライトオブジェクトが見つかりません', 'warning');
+            }
+        } else {
+            showToast('エクスポートするデータがありません', 'warning');
+            addFlightLog('データ管理', 'ミッションエクスポート', 'エクスポートするデータがありません', 'warning');
+        }
+    });
+
+    // 軌跡データインポート
+    document.getElementById('importTrajectory')?.addEventListener('click', () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.csv,.json,.geojson';
+        input.onchange = async (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (file) {
+                try {
+                    updateStatus('軌跡データ読み込み中...');
+                    const content = await file.text();
+                    let importedData: UnifiedFlightData[] = [];
+                    
+                    if (file.name.endsWith('.csv')) {
+                        importedData = parseUnifiedFlightDataCSV(content, file.name);
+                    } else if (file.name.endsWith('.json') || file.name.endsWith('.geojson')) {
+                        importedData = parseUnifiedFlightDataGeoJSON(content, file.name);
+                    }
+                    
+                    // 軌跡データとして処理（時系列ソート）
+                    const trajectoryData = importedData
+                        .filter(data => data.timestamp)
+                        .sort((a, b) => new Date(a.timestamp!).getTime() - new Date(b.timestamp!).getTime());
+                    
+                    if (trajectoryData.length > 0) {
+                        const convertedObjects = trajectoryData.map((data, index) => {
+                            const obj = convertUnifiedToDroneObject(data);
+                            obj.name = `軌跡点_${index + 1}`;
+                            obj.type = 'flight';
+                            return obj;
+                        });
+                        
+                        loadedObjects.push(...convertedObjects);
+                        updateDisplay();
+                        updateStatus(`軌跡データ読み込み完了: ${trajectoryData.length}個の軌跡点`);
+                        showToast(`軌跡データから${trajectoryData.length}個の軌跡点をインポートしました`, 'success');
+                        addFlightLog('データ管理', '軌跡データインポート', `${file.name}から${trajectoryData.length}個の軌跡点を読み込み`, 'success');
+                        
+                        // 軌跡の開始地点に地図を移動
+                        if (trajectoryData.length > 0) {
+                            const firstPoint = trajectoryData[0];
+                            map.flyTo({
+                                center: [firstPoint.position.longitude, firstPoint.position.latitude],
+                                zoom: 16,
+                                duration: 2000
+                            });
+                        }
+                    } else {
+                        showToast('軌跡データファイルからデータを読み込めませんでした', 'warning');
+                        addFlightLog('データ管理', '軌跡データインポート', 'ファイルの読み込みに失敗', 'warning');
+                    }
+                } catch (error) {
+                    console.error('軌跡データインポートエラー:', error);
+                    showToast('軌跡データファイルの読み込みに失敗しました', 'error');
+                    addFlightLog('データ管理', '軌跡データインポートエラー', `${file.name}の読み込みに失敗`, 'error');
+                    updateStatus('軌跡データインポートエラー');
+                }
+            }
+        };
+        input.click();
+    });
+
+    // 軌跡データエクスポート
+    document.getElementById('exportTrajectory')?.addEventListener('click', () => {
+        if (loadedObjects.length > 0) {
+            // フライト関連のオブジェクトのみを軌跡として処理
+            const trajectoryObjects = loadedObjects.filter(obj => 
+                obj.type === 'flight' || obj.type === 'drone'
+            );
+            
+            if (trajectoryObjects.length > 0) {
+                try {
+                    // 軌跡データとしてタイムスタンプを付与
+                    const trajectoryData = trajectoryObjects.map((obj, index) => {
+                        const unified = convertDroneObjectToUnified(obj);
+                        // タイムスタンプがない場合は順序に基づいて付与
+                        if (!unified.timestamp) {
+                            unified.timestamp = new Date(Date.now() + index * 10000).toISOString(); // 10秒間隔
+                        }
+                        unified.type = 'trajectory_point';
+                        return unified;
+                    });
+                    
+                    // CSV形式でエクスポート
+                    const csvData = exportUnifiedFlightDataToCSV(trajectoryData);
+                    downloadFile(csvData, 'flight_trajectory.csv', 'text/csv');
+                    
+                    // GeoJSON形式でもエクスポート
+                    const geoJsonData = exportUnifiedFlightDataToGeoJSON(trajectoryData);
+                    downloadFile(geoJsonData, 'flight_trajectory.geojson', 'application/geo+json');
+                    
+                    updateStatus('軌跡データエクスポート完了');
+                    showToast('軌跡データをCSVとGeoJSON形式でエクスポートしました', 'success');
+                    addFlightLog('データ管理', '軌跡データエクスポート', `${trajectoryData.length}個の軌跡点をエクスポート`, 'success');
+                } catch (error) {
+                    console.error('軌跡データエクスポートエラー:', error);
+                    showToast('軌跡データのエクスポートに失敗しました', 'error');
+                    addFlightLog('データ管理', '軌跡データエクスポートエラー', 'エクスポートに失敗', 'error');
+                }
+            } else {
+                showToast('軌跡として出力できるデータがありません', 'warning');
+                addFlightLog('データ管理', '軌跡データエクスポート', '軌跡データが見つかりません', 'warning');
+            }
+        } else {
+            showToast('エクスポートするデータがありません', 'warning');
+            addFlightLog('データ管理', '軌跡データエクスポート', 'エクスポートするデータがありません', 'warning');
+        }
+    });
+
+    // 能登半島山間部データ読み込み
+    document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.key === 'n') {
+            e.preventDefault();
+            loadNotoCoastData();
+        }
+    });
 };
 
 // フライトプラン管理機能
@@ -1512,6 +1878,71 @@ const importFlightPlan = () => {
         }
     };
     input.click();
+};
+
+// エッフェル塔関連の関数・ショートカットは削除
+
+// 能登半島山間部データ読み込み
+const loadNotoCoastData = async () => {
+    try {
+        // 3Dポイントデータ読み込み
+        const pointsResponse = await fetch('./data/noto-coast-3d-points.csv');
+        if (!pointsResponse.ok) throw new Error(`HTTP error! status: ${pointsResponse.status}`);
+        
+        const pointsContent = await pointsResponse.text();
+        const pointsBlob = new Blob([pointsContent], { type: 'text/csv' });
+        const pointsFile = new File([pointsBlob], 'noto-coast-points.csv', { type: 'text/csv' });
+        await importDataFromFile(pointsFile, map, 'points');
+        
+        // メッシュデータ読み込み
+        const meshResponse = await fetch('./data/noto-coast-mesh.csv');
+        if (!meshResponse.ok) throw new Error(`HTTP error! status: ${meshResponse.status}`);
+        
+        const meshContent = await meshResponse.text();
+        const meshBlob = new Blob([meshContent], { type: 'text/csv' });
+        const meshFile = new File([meshBlob], 'noto-coast-mesh.csv', { type: 'text/csv' });
+        await importDataFromFile(meshFile, map, 'mesh');
+        
+        // ウェイポイントデータ読み込み
+        const waypointsResponse = await fetch('./data/noto-coast-waypoints.csv');
+        if (!waypointsResponse.ok) throw new Error(`HTTP error! status: ${waypointsResponse.status}`);
+        
+        const waypointsContent = await waypointsResponse.text();
+        const waypointsBlob = new Blob([waypointsContent], { type: 'text/csv' });
+        const waypointsFile = new File([waypointsBlob], 'noto-coast-waypoints.csv', { type: 'text/csv' });
+        await importDataFromFile(waypointsFile, map, 'waypoints');
+        
+        // 能登半島用のフライトプランを設定
+        currentFlightPlan = [
+            { phase: '離陸', action: '輪島港から離陸開始', duration: 3000, position: [137.27, 37.495, 10] },
+            { phase: '外側旋回1', action: '北防波堤へ移動・ホバリング', duration: 4000, position: [137.275, 37.498, 15] },
+            { phase: '外側旋回2', action: '東防波堤へ移動・ホバリング', duration: 4000, position: [137.265, 37.497, 12] },
+            { phase: '外側旋回3', action: '南防波堤へ移動・ホバリング', duration: 4000, position: [137.268, 37.492, 14] },
+            { phase: '外側旋回4', action: '西防波堤へ移動・ホバリング', duration: 4000, position: [137.272, 37.493, 13] },
+            { phase: '内側旋回1', action: '内側北東へ移動・詳細撮影', duration: 3000, position: [137.273, 37.496, 11] },
+            { phase: '内側旋回2', action: '内側北西へ移動・詳細撮影', duration: 3000, position: [137.267, 37.496, 11] },
+            { phase: '内側旋回3', action: '内側南西へ移動・詳細撮影', duration: 3000, position: [137.269, 37.494, 12] },
+            { phase: '内側旋回4', action: '内側南東へ移動・詳細撮影', duration: 3000, position: [137.271, 37.494, 12] },
+            { phase: '中心部撮影', action: '輪島港中心部で詳細撮影', duration: 5000, position: [137.27, 37.495, 20] },
+            { phase: '着陸', action: '離陸地点に戻って着陸', duration: 3000, position: [137.27, 37.495, 0] }
+        ];
+        currentFlightPlanName = '能登半島山間部点検フライトプラン';
+        currentFlightPlanDescription = '能登半島山間部の包括的点検フライトプラン';
+        
+        addFlightLog('システム', '能登半島山間部データ', '能登半島山間部の3Dデータを読み込みました', 'success');
+        showToast('能登半島山間部データを読み込みました', 'success');
+        
+        // 地図を能登半島山間部の位置に移動
+        map.flyTo({
+            center: [137.27, 37.495],
+            zoom: 16,
+            duration: 2000
+        });
+    } catch (error) {
+        console.error('能登半島山間部データ読み込みエラー:', error);
+        addFlightLog('エラー', '能登半島山間部データ', '3Dデータの読み込みに失敗しました', 'error');
+        showToast('能登半島山間部データの読み込みに失敗しました', 'error');
+    }
 };
 
 // 地図のクリックイベント

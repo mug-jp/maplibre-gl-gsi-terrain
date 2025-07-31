@@ -1597,6 +1597,352 @@ export const exportDroneDataToGeoJSON = (objects: DroneObject[]): string => {
     return JSON.stringify(geojson, null, 2);
 };
 
+// ========================================
+// 新しい統一フライトデータ Export/Import
+// ========================================
+
+// UnifiedFlightDataのCSVエクスポート
+export const exportUnifiedFlightDataToCSV = (data: UnifiedFlightData[]): string => {
+    if (data.length === 0) return '';
+    
+    const headers = [
+        'id', 'name', 'type', 'source',
+        'longitude', 'latitude', 'altitude', 'relativeAltitude',
+        'timestamp', 'duration',
+        'speed', 'heading', 'action', 'waypointId', 'sequenceNumber',
+        'batteryLevel', 'signalStrength', 'gpsAccuracy', 'temperature', 'humidity', 'windSpeed', 'windDirection',
+        'missionId', 'operatorId', 'aircraftModel', 'aircraftSerial', 'description'
+    ];
+    
+    const rows = data.map(item => [
+        item.id,
+        item.name,
+        item.type,
+        item.source,
+        item.position.longitude,
+        item.position.latitude,
+        item.position.altitude,
+        item.position.relativeAltitude || '',
+        item.timestamp || '',
+        item.duration || '',
+        item.flight?.speed || '',
+        item.flight?.heading || '',
+        item.flight?.action || '',
+        item.flight?.waypointId || '',
+        item.flight?.sequenceNumber || '',
+        item.telemetry?.batteryLevel || '',
+        item.telemetry?.signalStrength || '',
+        item.telemetry?.gpsAccuracy || '',
+        item.telemetry?.temperature || '',
+        item.telemetry?.humidity || '',
+        item.telemetry?.windSpeed || '',
+        item.telemetry?.windDirection || '',
+        item.metadata?.missionId || '',
+        item.metadata?.operatorId || '',
+        item.metadata?.aircraftModel || '',
+        item.metadata?.aircraftSerial || '',
+        item.metadata?.description || ''
+    ]);
+    
+    const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
+    return csvContent;
+};
+
+// UnifiedFlightDataのGeoJSONエクスポート
+export const exportUnifiedFlightDataToGeoJSON = (data: UnifiedFlightData[]): string => {
+    const features = data.map(item => {
+        // 幾何情報がある場合はそれを使用、なければPointを作成
+        const geometry = item.geometry || {
+            type: 'Point' as const,
+            coordinates: [item.position.longitude, item.position.latitude, item.position.altitude]
+        };
+        
+        return {
+            type: 'Feature' as const,
+            geometry,
+            properties: {
+                id: item.id,
+                name: item.name,
+                type: item.type,
+                source: item.source,
+                altitude: item.position.altitude,
+                relativeAltitude: item.position.relativeAltitude,
+                timestamp: item.timestamp,
+                duration: item.duration,
+                flight: item.flight,
+                telemetry: item.telemetry,
+                metadata: item.metadata,
+                ...item.properties
+            }
+        };
+    });
+    
+    const geojson = {
+        type: 'FeatureCollection' as const,
+        metadata: {
+            generator: 'MapLibre GSI Terrain - Unified Flight Data',
+            timestamp: new Date().toISOString(),
+            count: data.length
+        },
+        features
+    };
+    
+    return JSON.stringify(geojson, null, 2);
+};
+
+// フライトミッションのJSONエクスポート
+export const exportFlightMissionToJSON = (mission: FlightMission): string => {
+    return JSON.stringify(mission, null, 2);
+};
+
+// フライト実行結果のJSONエクスポート
+export const exportFlightExecutionResultToJSON = (result: FlightExecutionResult): string => {
+    return JSON.stringify(result, null, 2);
+};
+
+// フライトミッションのKMLエクスポート（Googleマップ対応）
+export const exportFlightMissionToKML = (mission: FlightMission): string => {
+    const waypoints = mission.waypoints;
+    if (waypoints.length === 0) return '';
+    
+    const waypointPlacemarks = waypoints.map(wp => `
+        <Placemark>
+            <name>${wp.name}</name>
+            <description>
+                <![CDATA[
+                    <b>Action:</b> ${wp.flight?.action || 'waypoint'}<br/>
+                    <b>Altitude:</b> ${wp.position.altitude}m<br/>
+                    <b>Speed:</b> ${wp.flight?.speed || 'N/A'} m/s<br/>
+                    <b>Duration:</b> ${wp.duration || 0}s
+                ]]>
+            </description>
+            <Point>
+                <coordinates>${wp.position.longitude},${wp.position.latitude},${wp.position.altitude}</coordinates>
+            </Point>
+        </Placemark>`).join('');
+    
+    const pathCoordinates = waypoints.map(wp => 
+        `${wp.position.longitude},${wp.position.latitude},${wp.position.altitude}`
+    ).join(' ');
+    
+    const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+    <Document>
+        <name>${mission.name}</name>
+        <description>${mission.description || ''}</description>
+        
+        <Style id="waypointStyle">
+            <IconStyle>
+                <Icon>
+                    <href>http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href>
+                </Icon>
+            </IconStyle>
+        </Style>
+        
+        <Style id="pathStyle">
+            <LineStyle>
+                <color>ff0000ff</color>
+                <width>3</width>
+            </LineStyle>
+        </Style>
+        
+        ${waypointPlacemarks}
+        
+        <Placemark>
+            <name>Flight Path</name>
+            <styleUrl>#pathStyle</styleUrl>
+            <LineString>
+                <altitudeMode>absolute</altitudeMode>
+                <coordinates>${pathCoordinates}</coordinates>
+            </LineString>
+        </Placemark>
+        
+        <Placemark>
+            <name>Home Position</name>
+            <Point>
+                <coordinates>${mission.settings.homePosition.longitude},${mission.settings.homePosition.latitude},${mission.settings.homePosition.altitude}</coordinates>
+            </Point>
+        </Placemark>
+    </Document>
+</kml>`;
+    
+    return kml;
+};
+
+// ========================================
+// 新しい統一フライトデータ インポート関数
+// ========================================
+
+// UnifiedFlightDataのCSVインポート
+export const parseUnifiedFlightDataCSV = (csvContent: string): UnifiedFlightData[] => {
+    const lines = csvContent.trim().split('\n');
+    if (lines.length < 2) return [];
+    
+    const headers = lines[0].split(',').map(h => h.trim());
+    const data: UnifiedFlightData[] = [];
+    
+    for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',').map(v => v.trim());
+        if (values.length >= 6) { // 最低限必要なフィールド数
+            const item: UnifiedFlightData = {
+                id: values[0] || `unified_${Date.now()}_${i}`,
+                name: values[1] || `Flight Data ${i}`,
+                type: (values[2] as any) || 'waypoint',
+                source: values[3] || 'csv_import',
+                position: {
+                    longitude: parseFloat(values[4]) || 0,
+                    latitude: parseFloat(values[5]) || 0,
+                    altitude: parseFloat(values[6]) || 0,
+                    relativeAltitude: values[7] ? parseFloat(values[7]) : undefined
+                }
+            };
+            
+            // 時間情報
+            if (values[8]) item.timestamp = values[8];
+            if (values[9]) item.duration = parseFloat(values[9]);
+            
+            // フライト情報
+            if (values[10] || values[11] || values[12] || values[13] || values[14]) {
+                item.flight = {
+                    speed: values[10] ? parseFloat(values[10]) : undefined,
+                    heading: values[11] ? parseFloat(values[11]) : undefined,
+                    action: values[12] as any,
+                    waypointId: values[13] ? parseInt(values[13]) : undefined,
+                    sequenceNumber: values[14] ? parseInt(values[14]) : undefined
+                };
+            }
+            
+            // テレメトリ情報
+            if (values[15] || values[16] || values[17] || values[18] || values[19] || values[20] || values[21]) {
+                item.telemetry = {
+                    batteryLevel: values[15] ? parseFloat(values[15]) : undefined,
+                    signalStrength: values[16] ? parseFloat(values[16]) : undefined,
+                    gpsAccuracy: values[17] ? parseFloat(values[17]) : undefined,
+                    temperature: values[18] ? parseFloat(values[18]) : undefined,
+                    humidity: values[19] ? parseFloat(values[19]) : undefined,
+                    windSpeed: values[20] ? parseFloat(values[20]) : undefined,
+                    windDirection: values[21] ? parseFloat(values[21]) : undefined
+                };
+            }
+            
+            // メタデータ
+            if (values[22] || values[23] || values[24] || values[25] || values[26]) {
+                item.metadata = {
+                    missionId: values[22] || undefined,
+                    operatorId: values[23] || undefined,
+                    aircraftModel: values[24] || undefined,
+                    aircraftSerial: values[25] || undefined,
+                    description: values[26] || undefined
+                };
+            }
+            
+            data.push(item);
+        }
+    }
+    
+    return data;
+};
+
+// UnifiedFlightDataのGeoJSONインポート
+export const parseUnifiedFlightDataGeoJSON = (jsonContent: string): UnifiedFlightData[] => {
+    try {
+        const geojson = JSON.parse(jsonContent);
+        if (geojson.type !== 'FeatureCollection' || !geojson.features) {
+            throw new Error('Invalid GeoJSON format');
+        }
+        
+        const data: UnifiedFlightData[] = geojson.features.map((feature: any, index: number) => {
+            const props = feature.properties || {};
+            const geometry = feature.geometry;
+            
+            // 座標の取得（Point、LineString、Polygonに対応）
+            let position = { longitude: 0, latitude: 0, altitude: 0 };
+            if (geometry) {
+                if (geometry.type === 'Point') {
+                    position = {
+                        longitude: geometry.coordinates[0],
+                        latitude: geometry.coordinates[1],
+                        altitude: geometry.coordinates[2] || props.altitude || 0
+                    };
+                } else if (geometry.type === 'LineString' && geometry.coordinates.length > 0) {
+                    // LineStringの最初の点を使用
+                    position = {
+                        longitude: geometry.coordinates[0][0],
+                        latitude: geometry.coordinates[0][1],
+                        altitude: geometry.coordinates[0][2] || props.altitude || 0
+                    };
+                } else if (geometry.type === 'Polygon' && geometry.coordinates[0].length > 0) {
+                    // Polygonの最初の点を使用
+                    position = {
+                        longitude: geometry.coordinates[0][0][0],
+                        latitude: geometry.coordinates[0][0][1],
+                        altitude: geometry.coordinates[0][0][2] || props.altitude || 0
+                    };
+                }
+            }
+            
+            const item: UnifiedFlightData = {
+                id: props.id || `geojson_${Date.now()}_${index}`,
+                name: props.name || `Flight Data ${index + 1}`,
+                type: props.type || 'waypoint',
+                source: props.source || 'geojson_import',
+                position: {
+                    ...position,
+                    relativeAltitude: props.relativeAltitude
+                },
+                timestamp: props.timestamp,
+                duration: props.duration,
+                flight: props.flight,
+                telemetry: props.telemetry,
+                metadata: props.metadata,
+                geometry: geometry,
+                properties: props
+            };
+            
+            return item;
+        });
+        
+        return data;
+    } catch (error) {
+        console.error('GeoJSON parse error:', error);
+        return [];
+    }
+};
+
+// フライトミッションのJSONインポート
+export const parseFlightMissionJSON = (jsonContent: string): FlightMission | null => {
+    try {
+        const mission = JSON.parse(jsonContent);
+        
+        // 基本的な検証
+        if (!mission.id || !mission.name || !mission.settings || !mission.waypoints) {
+            throw new Error('Invalid flight mission format');
+        }
+        
+        return mission as FlightMission;
+    } catch (error) {
+        console.error('Flight mission parse error:', error);
+        return null;
+    }
+};
+
+// フライト実行結果のJSONインポート
+export const parseFlightExecutionResultJSON = (jsonContent: string): FlightExecutionResult | null => {
+    try {
+        const result = JSON.parse(jsonContent);
+        
+        // 基本的な検証
+        if (!result.missionId || !result.executionId || !result.actualTrajectory) {
+            throw new Error('Invalid flight execution result format');
+        }
+        
+        return result as FlightExecutionResult;
+    } catch (error) {
+        console.error('Flight execution result parse error:', error);
+        return null;
+    }
+};
+
 // ファイルダウンロード
 export const downloadFile = (content: string, filename: string, mimeType: string) => {
     try {

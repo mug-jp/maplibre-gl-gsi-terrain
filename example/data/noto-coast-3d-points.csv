@@ -1,0 +1,12 @@
+x,y,z,elevation,type,description,damage_level,component_type
+137.27,37.495,10,10,port,輪島港本体,0,structure
+137.275,37.498,15,15,point,北防波堤点検ポイント,1,damage
+137.265,37.497,12,12,point,東防波堤点検ポイント,0,normal
+137.268,37.492,14,14,point,南防波堤点検ポイント,2,damage
+137.272,37.493,13,13,point,西防波堤点検ポイント,0,normal
+137.273,37.496,11,11,point,内側詳細点検,1,damage
+137.267,37.496,11,11,point,内側詳細点検,0,normal
+137.269,37.494,12,12,point,内側詳細点検,0,normal
+137.271,37.494,12,12,point,内側詳細点検,1,damage
+137.27,37.495,20,20,point,中心部高所点検,0,normal
+137.27,37.495,0,0,point,地上基準点,0,reference
