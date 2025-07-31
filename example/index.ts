@@ -63,6 +63,10 @@ const map = new maplibregl.Map({
             'altitude-lines': {
                 type: 'geojson',
                 data: { type: 'FeatureCollection', features: [] }
+            },
+            'drawing-polygon': {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] }
             }
         },
         layers: [
@@ -83,6 +87,8 @@ const map = new maplibregl.Map({
 let loadedObjects: DroneObject[] = [];
 let is3D = true;
 let drawMode = false;
+let polygonDrawingMode = false;
+let currentPolygonPoints: [number, number][] = [];
 let droneSimulationInterval: number | null = null;
 let sampleDataLoaded = false;
 
@@ -122,25 +128,41 @@ const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info')
         position: fixed;
         top: 20px;
         right: 20px;
-        background: ${type === 'success' ? '#28a745' : type === 'error' ? '#dc3545' : '#17a2b8'};
+        background: ${type === 'success' ? 'rgba(34, 197, 94, 0.9)' : type === 'error' ? 'rgba(239, 68, 68, 0.9)' : 'rgba(59, 130, 246, 0.9)'};
+        backdrop-filter: blur(4px);
         color: white;
-        padding: 12px 20px;
-        border-radius: 6px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        padding: 12px 16px;
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
         z-index: 10000;
-        font-family: Arial, sans-serif;
-        font-size: 14px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 13px;
+        font-weight: 500;
         max-width: 300px;
         word-wrap: break-word;
+        border: 1px solid ${type === 'success' ? 'rgba(34, 197, 94, 0.3)' : type === 'error' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(59, 130, 246, 0.3)'};
+        transform: translateX(100%);
+        opacity: 0;
+        transition: all 0.3s ease;
     `;
     toast.textContent = message;
     document.body.appendChild(toast);
     
+    // アニメーション開始
     setTimeout(() => {
-        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(0)';
+        toast.style.opacity = '1';
+    }, 100);
+    
+    // 自動で消える
+    setTimeout(() => {
         toast.style.transform = 'translateX(100%)';
-        toast.style.transition = 'all 0.3s ease';
-        setTimeout(() => document.body.removeChild(toast), 300);
+        toast.style.opacity = '0';
+        setTimeout(() => {
+            if (document.body.contains(toast)) {
+                document.body.removeChild(toast);
+            }
+        }, 300);
     }, 3000);
 };
 
@@ -347,6 +369,40 @@ const setupLayers = () => {
             'text-halo-width': 1
         }
     });
+
+    // 多角形描画レイヤー
+    map.addLayer({
+        id: 'polygon-fill',
+        type: 'fill',
+        source: 'drawing-polygon',
+        paint: {
+            'fill-color': '#ff6b6b',
+            'fill-opacity': 0.3
+        }
+    });
+
+    map.addLayer({
+        id: 'polygon-stroke',
+        type: 'line',
+        source: 'drawing-polygon',
+        paint: {
+            'line-color': '#ff6b6b',
+            'line-width': 3,
+            'line-opacity': 0.8
+        }
+    });
+
+    map.addLayer({
+        id: 'polygon-points',
+        type: 'circle',
+        source: 'drawing-polygon',
+        paint: {
+            'circle-radius': 6,
+            'circle-color': '#ff6b6b',
+            'circle-stroke-width': 2,
+            'circle-stroke-color': '#ffffff'
+        }
+    });
 };
 
 // 表示更新
@@ -434,6 +490,131 @@ const updateConnections = () => {
     (map.getSource('drone-connections') as maplibregl.GeoJSONSource)?.setData({
         type: 'FeatureCollection',
         features: connectionFeatures
+    });
+};
+
+// 多角形描画関数
+const handlePolygonClick = (lngLat: maplibregl.LngLat) => {
+    const point: [number, number] = [lngLat.lng, lngLat.lat];
+    
+    // 3点以上ある場合、始点に近いかチェック
+    if (currentPolygonPoints.length >= 3) {
+        const firstPoint = currentPolygonPoints[0];
+        const distance = Math.sqrt(
+            Math.pow((point[0] - firstPoint[0]) * 111000, 2) + 
+            Math.pow((point[1] - firstPoint[1]) * 111000, 2)
+        );
+        
+        // 100m以内なら多角形を完成
+        if (distance < 100) {
+            completePolygon();
+            return;
+        }
+    }
+    
+    currentPolygonPoints.push(point);
+    updatePolygonDisplay();
+    
+    showToast(`頂点${currentPolygonPoints.length}を追加 (${currentPolygonPoints.length >= 3 ? '始点をクリックして完成' : ''})`,'info');
+};
+
+const updatePolygonDisplay = () => {
+    const features = [];
+    
+    // 現在の点を表示
+    currentPolygonPoints.forEach((point, index) => {
+        features.push({
+            type: 'Feature' as const,
+            geometry: {
+                type: 'Point' as const,
+                coordinates: point
+            },
+            properties: {
+                index,
+                isFirst: index === 0
+            }
+        });
+    });
+    
+    // 3点以上あれば線も表示
+    if (currentPolygonPoints.length >= 2) {
+        const lineCoords = [...currentPolygonPoints];
+        // 描画中は最後の点から最初の点への線も表示（3点以上の場合）
+        if (currentPolygonPoints.length >= 3) {
+            lineCoords.push(currentPolygonPoints[0]);
+        }
+        
+        features.push({
+            type: 'Feature' as const,
+            geometry: {
+                type: 'LineString' as const,
+                coordinates: lineCoords
+            },
+            properties: {
+                type: 'drawing-line'
+            }
+        });
+    }
+    
+    (map.getSource('drawing-polygon') as maplibregl.GeoJSONSource).setData({
+        type: 'FeatureCollection',
+        features: features
+    });
+};
+
+const completePolygon = () => {
+    if (currentPolygonPoints.length < 3) {
+        showToast('多角形を作成するには最低3点が必要です', 'warning');
+        return;
+    }
+    
+    // 多角形を閉じる
+    const closedPoints = [...currentPolygonPoints, currentPolygonPoints[0]];
+    
+    // 面積計算 (概算)
+    const area = calculatePolygonArea(currentPolygonPoints);
+    
+    // 多角形オブジェクトとして保存
+    const polygonObject: DroneObject = {
+        id: `polygon_${Date.now()}`,
+        name: `検査エリア_${loadedObjects.filter(obj => obj.type === 'polygon').length + 1}`,
+        longitude: currentPolygonPoints[0][0], // 中心点代表座標
+        latitude: currentPolygonPoints[0][1],
+        altitude: 0,
+        type: 'polygon',
+        source: 'polygon_draw'
+    } as DroneObject;
+    
+    loadedObjects.push(polygonObject);
+    
+    resetPolygonDrawing();
+    updateDisplay();
+    
+    showToast(`多角形「${polygonObject.name}」を作成しました (面積: ${area.toFixed(0)}㎡)`, 'success');
+};
+
+const calculatePolygonArea = (coordinates: [number, number][]): number => {
+    // Shoelace formula for polygon area calculation
+    let area = 0;
+    const n = coordinates.length;
+    
+    for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        area += coordinates[i][0] * coordinates[j][1];
+        area -= coordinates[j][0] * coordinates[i][1];
+    }
+    
+    // 度から平方メートルへの概算変換（緯度35度付近）
+    area = Math.abs(area) / 2;
+    const metersPerDegree = 111000; // 概算値
+    return area * metersPerDegree * metersPerDegree;
+};
+
+const resetPolygonDrawing = () => {
+    currentPolygonPoints = [];
+    (map.getSource('drawing-polygon') as maplibregl.GeoJSONSource).setData({
+        type: 'FeatureCollection',
+        features: []
     });
 };
 
@@ -599,6 +780,16 @@ const setupEventHandlers = () => {
     // 描画モード切り替え
     document.getElementById('toggleDrawMode')?.addEventListener('click', () => {
         drawMode = !drawMode;
+        
+        if (drawMode) {
+            polygonDrawingMode = false; // 他のモードを無効化
+            const polygonButton = document.getElementById('togglePolygonMode');
+            if (polygonButton) {
+                polygonButton.textContent = '多角形';
+            }
+            resetPolygonDrawing();
+        }
+        
         const button = document.getElementById('toggleDrawMode');
         if (button) {
             button.textContent = drawMode ? '描画モード停止' : '描画モード';
@@ -606,6 +797,29 @@ const setupEventHandlers = () => {
         map.getCanvas().style.cursor = drawMode ? 'crosshair' : '';
         updateStatus(drawMode ? '描画モード有効 - マップをクリックして点検ポイントを追加' : '描画モード無効');
         showToast(drawMode ? '描画モードを有効にしました' : '描画モードを無効にしました', 'info');
+    });
+
+    // 多角形描画モード切り替え
+    document.getElementById('togglePolygonMode')?.addEventListener('click', () => {
+        polygonDrawingMode = !polygonDrawingMode;
+        
+        if (polygonDrawingMode) {
+            drawMode = false; // 他のモードを無効化
+            const drawButton = document.getElementById('toggleDrawMode');
+            if (drawButton) {
+                drawButton.textContent = '描画モード';
+            }
+        } else {
+            resetPolygonDrawing(); // 描画中のデータをクリア
+        }
+        
+        const button = document.getElementById('togglePolygonMode');
+        if (button) {
+            button.textContent = polygonDrawingMode ? '多角形停止' : '多角形';
+        }
+        map.getCanvas().style.cursor = polygonDrawingMode ? 'crosshair' : '';
+        updateStatus(polygonDrawingMode ? '多角形描画モード有効 - クリックして頂点を追加、始点をクリックして完成' : '多角形描画モード無効');
+        showToast(polygonDrawingMode ? '多角形描画モードを有効にしました' : '多角形描画モードを無効にしました', 'info');
     });
 
     // CSVエクスポート
@@ -687,11 +901,35 @@ const setupEventHandlers = () => {
 
     // フライトログ表示切替
     document.getElementById('toggleLog')?.addEventListener('click', () => {
-        const footer = document.querySelector('.footer') as HTMLElement;
-        if (footer) {
-            const isVisible = footer.style.display !== 'none';
-            footer.style.display = isVisible ? 'none' : 'block';
-            addFlightLog('システム', 'ログ表示切替', isVisible ? 'ログ表示を無効にしました' : 'ログ表示を有効にしました', 'info');
+        const flightLog = document.getElementById('flightLog') as HTMLElement;
+        const toggleButton = document.getElementById('toggleLog') as HTMLButtonElement;
+        
+        console.log('Toggleボタンがクリックされました');
+        console.log('FlightLog要素:', flightLog);
+        console.log('Toggleボタン要素:', toggleButton);
+        console.log('現在のFlightLog表示状態:', flightLog?.classList.contains('hidden'));
+        
+        if (flightLog && toggleButton) {
+            // ログリストの表示状態を判定
+            const isCurrentlyVisible = !flightLog.classList.contains('hidden');
+            
+            console.log('現在の表示状態:', isCurrentlyVisible);
+            
+            if (isCurrentlyVisible) {
+                // ログリストを非表示にする
+                flightLog.classList.add('hidden');
+                toggleButton.textContent = 'ログ表示';
+                addFlightLog('システム', 'ログ表示切替', 'ログ表示を無効にしました', 'info');
+                console.log('ログリストを非表示にしました');
+            } else {
+                // ログリストを表示にする
+                flightLog.classList.remove('hidden');
+                toggleButton.textContent = 'ログ非表示';
+                addFlightLog('システム', 'ログ表示切替', 'ログ表示を有効にしました', 'info');
+                console.log('ログリストを表示にしました');
+            }
+        } else {
+            console.error('FlightLogまたはToggleボタンが見つかりません');
         }
     });
 };
@@ -829,7 +1067,9 @@ const importFlightPlan = () => {
 
 // 地図のクリックイベント
 map.on('click', (e) => {
-    if (drawMode) {
+    if (polygonDrawingMode) {
+        handlePolygonClick(e.lngLat);
+    } else if (drawMode) {
         addObjectAtLocation(e.lngLat);
     }
 });
@@ -844,4 +1084,19 @@ map.on('load', () => {
     // フライトログ初期化
     addFlightLog('システム', '初期化', '東京タワー点検システムが起動しました', 'success');
     addFlightLog('システム', '準備完了', 'フライトプランとリアルタイムログ機能が利用可能です', 'info');
+    
+    // Footerを初期表示状態にする（より確実な処理）
+    setTimeout(() => {
+        const flightLog = document.getElementById('flightLog') as HTMLElement;
+        const toggleButton = document.getElementById('toggleLog') as HTMLButtonElement;
+        
+        if (flightLog && toggleButton) {
+            // ログリストを表示状態に設定
+            flightLog.classList.remove('hidden');
+            toggleButton.textContent = 'ログ非表示';
+            console.log('ログリストを初期表示状態に設定しました');
+        } else {
+            console.error('FlightLogまたはToggleボタンの初期化に失敗しました');
+        }
+    }, 100); // 少し遅延させて確実にDOMが準備されるようにする
 });
