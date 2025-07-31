@@ -171,8 +171,7 @@
             overflow-y: auto;
             z-index: 1000;
             border-top: 1px solid rgba(255, 255, 255, 0.2);
-            display: none;
-            /* 初期状態は非表示 */
+            /* 初期状態は表示 */
         }
 
         .footer-header {
@@ -214,10 +213,16 @@
             flex-direction: column;
             gap: 3px;
             transition: all 0.3s ease;
+            display: none;
+            /* 初期状態は非表示 */
         }
 
         .flight-log.hidden {
             display: none;
+        }
+
+        .flight-log.visible {
+            display: flex;
         }
 
         .log-entry {
@@ -305,6 +310,12 @@
             color: #166534;
         }
 
+        .flight-plan-buttons button.danger {
+            background: rgba(239, 68, 68, 0.3);
+            border-color: rgba(239, 68, 68, 0.6);
+            color: #991b1b;
+        }
+
         .flight-plan-buttons button.warning {
             background: rgba(245, 158, 11, 0.3);
             border-color: rgba(245, 158, 11, 0.6);
@@ -344,8 +355,9 @@
             <div class="button-group">
                 <button id="loadDroneData" class="success">配置</button>
                 <button id="startSimulation" class="info">シミュレーション</button>
-                <button id="toggleDrawMode" class="warning">描画</button>
-                <button id="togglePolygonMode" class="warning">多角形</button>
+                <button id="toggleDrawMode" class="warning">ポイント作成</button>
+                <button id="togglePolygonMode" class="warning">多角形作成</button>
+                <button id="toggleEditMode" class="info">オブジェクト編集</button>
             </div>
         </div>
 
@@ -353,6 +365,8 @@
         <div class="control-section">
             <div class="section-title">データ管理</div>
             <div class="button-group">
+                <button id="importCSV" class="success">CSV入力</button>
+                <button id="importGeoJSON" class="success">GeoJSON入力</button>
                 <button id="exportCSV" class="info">CSV出力</button>
                 <button id="exportGeoJSON" class="info">GeoJSON出力</button>
                 <button id="clearData" class="error">クリア</button>
@@ -379,10 +393,10 @@
     <div class="flight-plan-export">
         <div class="flight-plan-title">フライトプラン</div>
         <div class="flight-plan-buttons">
-            <button id="startFlightPlan" class="success">開始</button>
+            <button id="startFlightPlan" class="danger">開始</button>
             <button id="pauseFlightPlan" class="warning">一時停止</button>
             <button id="exportFlightPlan" class="info">エクスポート</button>
-            <button id="importFlightPlan" class="info">インポート</button>
+            <button id="importFlightPlan" class="success">インポート</button>
         </div>
     </div>
 

@@ -1,13 +1,74 @@
 import maplibregl from 'maplibre-gl';
 
-// ドローン関連オブジェクトの型定義
+// 統一されたフライトデータモデル
+export interface UnifiedFlightData {
+    // 基本識別情報
+    id: string;
+    name: string;
+    type: 'waypoint' | 'trajectory_point' | 'object' | 'mission' | 'polygon' | 'area';
+    source: string;
+    
+    // 地理空間情報（統一座標系）
+    position: {
+        longitude: number;
+        latitude: number;
+        altitude: number;          // 海抜高度 (MSL)
+        relativeAltitude?: number; // 相対高度 (AGL)
+    };
+    
+    // 時間情報
+    timestamp?: string;            // ISO 8601形式
+    duration?: number;             // 滞在時間（秒）
+    
+    // フライト関連情報
+    flight?: {
+        speed?: number;            // m/s
+        heading?: number;          // 度（北を0として時計回り）
+        action?: 'takeoff' | 'land' | 'hover' | 'move' | 'waypoint' | 'rtl' | 'photo' | 'video';
+        waypointId?: number;
+        sequenceNumber?: number;
+    };
+    
+    // センサー・機体情報
+    telemetry?: {
+        batteryLevel?: number;     // 0-100%
+        signalStrength?: number;   // dBm
+        gpsAccuracy?: number;      // メートル
+        temperature?: number;      // 摂氏
+        humidity?: number;         // %
+        windSpeed?: number;        // m/s
+        windDirection?: number;    // 度
+    };
+    
+    // 幾何学情報（多角形やエリアの場合）
+    geometry?: {
+        type: 'Point' | 'LineString' | 'Polygon';
+        coordinates: number[][] | number[][][];
+    };
+    
+    // メタデータ
+    metadata?: {
+        missionId?: string;
+        operatorId?: string;
+        aircraftModel?: string;
+        aircraftSerial?: string;
+        softwareVersion?: string;
+        description?: string;
+        tags?: string[];
+    };
+    
+    // 拡張プロパティ
+    properties?: Record<string, any>;
+}
+
+// 後方互換性のために既存のDroneObjectを維持
 export interface DroneObject {
     id: string;
     name: string;
     longitude: number;
     latitude: number;
     altitude: number;
-    type: 'drone' | 'base' | 'sensor' | 'building' | 'weather' | 'manual' | 'flight' | 'unknown';
+    type: 'drone' | 'base' | 'sensor' | 'building' | 'weather' | 'manual' | 'flight' | 'polygon' | 'unknown';
     source: string;
     properties?: Record<string, any>;
 }
@@ -51,7 +112,7 @@ export interface DroneWaypoint {
     properties?: Record<string, any>;
 }
 
-// ドローン飛行ログの型定義
+// ドローン飛行ログの型定義（後方互換）
 export interface DroneFlightLog {
     x: number;
     y: number;
@@ -65,6 +126,81 @@ export interface DroneFlightLog {
     action?: string;
     description?: string;
     properties?: Record<string, any>;
+}
+
+// 新しいミッション定義
+export interface FlightMission {
+    id: string;
+    name: string;
+    description?: string;
+    created: string;               // ISO 8601
+    modified?: string;             // ISO 8601
+    
+    // ミッション設定
+    settings: {
+        homePosition: {
+            longitude: number;
+            latitude: number;   
+            altitude: number;
+        };
+        maxAltitude?: number;      // 最大高度制限
+        maxDistance?: number;      // 最大距離制限
+        returnToHomeAltitude?: number;
+        emergencyAction?: 'rtl' | 'land' | 'hover';
+        geofence?: {
+            type: 'circle' | 'polygon';
+            coordinates: number[][];
+            enabled: boolean;
+        };
+    };
+    
+    // ウェイポイントリスト
+    waypoints: UnifiedFlightData[];
+    
+    // ミッションメタデータ
+    metadata: {
+        operatorId?: string;
+        aircraftModel?: string;
+        totalDistance?: number;     // 計算された総距離
+        estimatedDuration?: number; // 推定所要時間（秒）
+        maxAltitude?: number;       // ミッション内最大高度
+        tags?: string[];
+        notes?: string;
+    };
+}
+
+// フライト実行結果
+export interface FlightExecutionResult {
+    missionId: string;
+    executionId: string;
+    startTime: string;             // ISO 8601
+    endTime?: string;              // ISO 8601
+    status: 'planned' | 'in_progress' | 'completed' | 'aborted' | 'emergency';
+    
+    // 実行軌跡
+    actualTrajectory: UnifiedFlightData[];
+    
+    // 実行統計
+    statistics: {
+        totalDistance: number;
+        totalDuration: number;
+        averageSpeed: number;
+        maxAltitude: number;
+        waypointsCompleted: number;
+        waypointsTotal: number;
+    };
+    
+    // エラーやイベント
+    events: {
+        timestamp: string;
+        type: 'info' | 'warning' | 'error' | 'emergency';
+        message: string;
+        position?: {
+            longitude: number;
+            latitude: number;
+            altitude: number;
+        };
+    }[];
 }
 
 // CSVデータのパース処理
@@ -98,6 +234,185 @@ export const parseCSVData = (csvContent: string): Point3D[] => {
     }
     
     return data;
+};
+
+// ========================================
+// 新しい統一データ変換関数
+// ========================================
+
+// DroneObjectからUnifiedFlightDataへの変換
+export const convertDroneObjectToUnified = (droneObj: DroneObject): UnifiedFlightData => {
+    const unified: UnifiedFlightData = {
+        id: droneObj.id,
+        name: droneObj.name,
+        type: droneObj.type === 'flight' ? 'waypoint' : 'object',
+        source: droneObj.source,
+        position: {
+            longitude: droneObj.longitude,
+            latitude: droneObj.latitude,
+            altitude: droneObj.altitude
+        },
+        properties: droneObj.properties
+    };
+    
+    return unified;
+};
+
+// UnifiedFlightDataからDroneObjectへの変換（後方互換）
+export const convertUnifiedToDroneObject = (unified: UnifiedFlightData): DroneObject => {
+    return {
+        id: unified.id,
+        name: unified.name,
+        longitude: unified.position.longitude,
+        latitude: unified.position.latitude,
+        altitude: unified.position.altitude,
+        type: unified.type === 'waypoint' ? 'flight' : 'unknown',
+        source: unified.source,
+        properties: unified.properties
+    };
+};
+
+// DroneWaypointからUnifiedFlightDataへの変換
+export const convertWaypointToUnified = (waypoint: DroneWaypoint): UnifiedFlightData => {
+    return {
+        id: `waypoint_${waypoint.waypoint_id}`,
+        name: `Waypoint ${waypoint.waypoint_id}`,
+        type: 'waypoint',
+        source: 'waypoint_conversion',
+        position: {
+            longitude: waypoint.x,
+            latitude: waypoint.y,
+            altitude: waypoint.z
+        },
+        timestamp: waypoint.timestamp,
+        flight: {
+            speed: waypoint.speed,
+            action: waypoint.action as any,
+            waypointId: waypoint.waypoint_id,
+            sequenceNumber: waypoint.waypoint_id
+        },
+        properties: waypoint.properties
+    };
+};
+
+// DroneFlightLogからUnifiedFlightDataへの変換
+export const convertFlightLogToUnified = (log: DroneFlightLog): UnifiedFlightData => {
+    return {
+        id: `log_${Date.parse(log.timestamp)}`,
+        name: `Flight Log ${log.timestamp}`,
+        type: 'trajectory_point',
+        source: 'flight_log_conversion',
+        position: {
+            longitude: log.x,
+            latitude: log.y,
+            altitude: log.z
+        },
+        timestamp: log.timestamp,
+        flight: {
+            speed: log.speed,
+            action: log.action as any
+        },
+        telemetry: {
+            batteryLevel: log.battery_level,
+            signalStrength: log.signal_strength,
+            gpsAccuracy: log.gps_accuracy
+        },
+        properties: log.properties
+    };
+};
+
+// ミッション距離計算
+export const calculateMissionDistance = (waypoints: UnifiedFlightData[]): number => {
+    if (waypoints.length < 2) return 0;
+    
+    let totalDistance = 0;
+    for (let i = 1; i < waypoints.length; i++) {
+        const prev = waypoints[i - 1].position;
+        const curr = waypoints[i].position;
+        
+        // Haversine公式を使用して距離を計算
+        const R = 6371000; // 地球の半径（メートル）
+        const lat1 = prev.latitude * Math.PI / 180;
+        const lat2 = curr.latitude * Math.PI / 180;
+        const deltaLat = (curr.latitude - prev.latitude) * Math.PI / 180;
+        const deltaLng = (curr.longitude - prev.longitude) * Math.PI / 180;
+        
+        const a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+                  Math.cos(lat1) * Math.cos(lat2) *
+                  Math.sin(deltaLng / 2) * Math.sin(deltaLng / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const horizontalDistance = R * c;
+        
+        // 高度差も考慮
+        const altitudeDiff = curr.altitude - prev.altitude;
+        const distance3D = Math.sqrt(horizontalDistance * horizontalDistance + altitudeDiff * altitudeDiff);
+        
+        totalDistance += distance3D;
+    }
+    
+    return totalDistance;
+};
+
+// ミッション時間推定
+export const estimateMissionDuration = (waypoints: UnifiedFlightData[], defaultSpeed: number = 10): number => {
+    const totalDistance = calculateMissionDistance(waypoints);
+    let totalTime = 0;
+    
+    for (let i = 1; i < waypoints.length; i++) {
+        const speed = waypoints[i].flight?.speed || defaultSpeed;
+        const prevPos = waypoints[i - 1].position;
+        const currPos = waypoints[i].position;
+        
+        // セグメント距離計算
+        const R = 6371000;
+        const lat1 = prevPos.latitude * Math.PI / 180;
+        const lat2 = currPos.latitude * Math.PI / 180;
+        const deltaLat = (currPos.latitude - prevPos.latitude) * Math.PI / 180;
+        const deltaLng = (currPos.longitude - prevPos.longitude) * Math.PI / 180;
+        
+        const a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+                  Math.cos(lat1) * Math.cos(lat2) *
+                  Math.sin(deltaLng / 2) * Math.sin(deltaLng / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const segmentDistance = R * c;
+        
+        // 移動時間 + 滞在時間
+        const moveTime = segmentDistance / speed;
+        const hoverTime = waypoints[i].duration || 0;
+        totalTime += moveTime + hoverTime;
+    }
+    
+    return totalTime;
+};
+
+// フライトミッションの作成
+export const createFlightMission = (
+    name: string,
+    waypoints: UnifiedFlightData[],
+    homePosition: { longitude: number; latitude: number; altitude: number },
+    options?: Partial<FlightMission['settings']>
+): FlightMission => {
+    const now = new Date().toISOString();
+    
+    return {
+        id: `mission_${Date.now()}`,
+        name,
+        created: now,
+        settings: {
+            homePosition,
+            maxAltitude: 400,
+            maxDistance: 1000,
+            returnToHomeAltitude: 50,
+            emergencyAction: 'rtl',
+            ...options
+        },
+        waypoints,
+        metadata: {
+            totalDistance: calculateMissionDistance(waypoints),
+            estimatedDuration: estimateMissionDuration(waypoints),
+            maxAltitude: Math.max(...waypoints.map(w => w.position.altitude))
+        }
+    };
 };
 
 // メッシュデータのパース処理

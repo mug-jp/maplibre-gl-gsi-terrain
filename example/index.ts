@@ -14,9 +14,17 @@ import {
     downloadFile, 
     generateSampleDroneData, 
     clearDroneData,
+    convertDroneObjectToUnified,
+    convertUnifiedToDroneObject,
+    createFlightMission,
+    calculateMissionDistance,
+    estimateMissionDuration,
     type Point3D, 
     type MeshVertex,
-    type DroneObject 
+    type DroneObject,
+    type UnifiedFlightData,
+    type FlightMission,
+    type FlightExecutionResult
 } from '../src/data-import-export';
 
 // 地理院DEM設定
@@ -67,6 +75,10 @@ const map = new maplibregl.Map({
             'drawing-polygon': {
                 type: 'geojson',
                 data: { type: 'FeatureCollection', features: [] }
+            },
+            'selected-object': {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] }
             }
         },
         layers: [
@@ -88,6 +100,10 @@ let loadedObjects: DroneObject[] = [];
 let is3D = true;
 let drawMode = false;
 let polygonDrawingMode = false;
+let editMode = false;
+let selectedObject: DroneObject | null = null;
+let isDragging = false;
+let dragStartPos: [number, number] | null = null;
 let currentPolygonPoints: [number, number][] = [];
 let droneSimulationInterval: number | null = null;
 let sampleDataLoaded = false;
@@ -106,8 +122,28 @@ let flightPlanActive = false;
 let flightPlanInterval: number | null = null;
 let currentFlightPhase = 0;
 
-// フライトプラン定義
-const flightPlan = [
+// 動的フライトプラン管理
+let currentFlightPlan: FlightPlanPhase[] = [];
+let currentFlightPlanName = '';
+let currentFlightPlanDescription = '';
+
+interface FlightPlanPhase {
+    phase: string;
+    action: string;
+    duration: number;
+    position: [number, number, number];
+}
+
+interface FlightPlanData {
+    name: string;
+    description: string;
+    created: string;
+    phases: FlightPlanPhase[];
+    totalDuration: number;
+}
+
+// デフォルトのフライトプラン定義（東京タワー）
+const defaultFlightPlan: FlightPlanPhase[] = [
     { phase: '離陸', action: '東京タワー南側から離陸開始', duration: 3000, position: [139.7454, 35.6586, 100] },
     { phase: '外側旋回1', action: '北東角へ移動・ホバリング', duration: 4000, position: [139.7456, 35.6588, 150] },
     { phase: '外側旋回2', action: '北西角へ移動・ホバリング', duration: 4000, position: [139.7452, 35.6588, 150] },
@@ -120,6 +156,11 @@ const flightPlan = [
     { phase: '中心部撮影', action: '東京タワー中心部で詳細撮影', duration: 5000, position: [139.7454, 35.6586, 200] },
     { phase: '着陸', action: '離陸地点に戻って着陸', duration: 3000, position: [139.7454, 35.6586, 0] }
 ];
+
+// 初期化時にデフォルトプランを設定
+currentFlightPlan = defaultFlightPlan;
+currentFlightPlanName = '東京タワー点検フライトプラン';
+currentFlightPlanDescription = '東京タワー周辺の包括的点検フライトプラン';
 
 // Toast通知システム
 const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -276,11 +317,36 @@ const setupLayers = () => {
         }
     });
 
+    // 多角形レイヤー
+    map.addLayer({
+        id: 'polygon-fill-layer',
+        type: 'fill',
+        source: 'drone-objects',
+        filter: ['==', ['get', 'type'], 'polygon'],
+        paint: {
+            'fill-color': '#ff6b6b',
+            'fill-opacity': 0.3
+        }
+    });
+
+    map.addLayer({
+        id: 'polygon-stroke-layer',
+        type: 'line',
+        source: 'drone-objects',
+        filter: ['==', ['get', 'type'], 'polygon'],
+        paint: {
+            'line-color': '#ff6b6b',
+            'line-width': 2,
+            'line-opacity': 0.8
+        }
+    });
+
     // ドローンオブジェクト（3D）
     map.addLayer({
         id: 'drone-objects-3d',
         type: 'circle',
         source: 'drone-objects',
+        filter: ['!=', ['get', 'type'], 'polygon'],
         paint: {
             'circle-radius': [
                 'interpolate',
@@ -312,6 +378,7 @@ const setupLayers = () => {
         id: 'drone-objects-2d',
         type: 'circle',
         source: 'drone-objects',
+        filter: ['!=', ['get', 'type'], 'polygon'],
         layout: { 'visibility': 'none' },
         paint: {
             'circle-radius': 6,
@@ -403,29 +470,92 @@ const setupLayers = () => {
             'circle-stroke-color': '#ffffff'
         }
     });
+
+    // 選択オブジェクトのハイライト表示
+    map.addLayer({
+        id: 'selected-object-highlight',
+        type: 'fill',
+        source: 'selected-object',
+        paint: {
+            'fill-color': '#00ff00',
+            'fill-opacity': 0.2
+        }
+    });
+
+    map.addLayer({
+        id: 'selected-object-stroke',
+        type: 'line',
+        source: 'selected-object',
+        paint: {
+            'line-color': '#00ff00',
+            'line-width': 4,
+            'line-opacity': 0.8
+        }
+    });
+
+    map.addLayer({
+        id: 'selected-object-points',
+        type: 'circle',
+        source: 'selected-object',
+        paint: {
+            'circle-radius': 8,
+            'circle-color': '#00ff00',
+            'circle-stroke-width': 3,
+            'circle-stroke-color': '#ffffff',
+            'circle-opacity': 0.9
+        }
+    });
 };
 
 // 表示更新
 const updateDisplay = () => {
     // オブジェクト表示
-    const features = loadedObjects.map(obj => ({
-        type: 'Feature' as const,
-        geometry: {
-            type: 'Point' as const,
-            coordinates: [obj.longitude, obj.latitude]
-        },
-        properties: {
-            id: obj.id,
-            name: obj.name,
-            altitude: obj.altitude,
-            type: obj.type
+    const features = loadedObjects.map(obj => {
+        const extendedObj = obj as any; // 拡張プロパティアクセス用
+        
+        if (obj.type === 'polygon' && extendedObj.geometry) {
+            // 多角形の場合は保存されたgeometryを使用
+            const feature = {
+                type: 'Feature' as const,
+                geometry: extendedObj.geometry,
+                properties: {
+                    id: obj.id,
+                    name: obj.name,
+                    altitude: obj.altitude,
+                    type: obj.type,
+                    area: extendedObj.area || 0
+                }
+            };
+            console.log('多角形フィーチャー作成:', feature);
+            return feature;
+        } else {
+            // 点の場合は従来通り
+            return {
+                type: 'Feature' as const,
+                geometry: {
+                    type: 'Point' as const,
+                    coordinates: [obj.longitude, obj.latitude]
+                },
+                properties: {
+                    id: obj.id,
+                    name: obj.name,
+                    altitude: obj.altitude,
+                    type: obj.type
+                }
+            };
         }
-    }));
+    });
 
-    (map.getSource('drone-objects') as maplibregl.GeoJSONSource)?.setData({
+    console.log('updateDisplay: 全フィーチャー:', features);
+    
+    const geoJSONData = {
         type: 'FeatureCollection',
         features: features
-    });
+    };
+    
+    console.log('drone-objectsソースに設定するデータ:', geoJSONData);
+    
+    (map.getSource('drone-objects') as maplibregl.GeoJSONSource)?.setData(geoJSONData);
 
     // 高度ライン表示
     const altitudeFeatures = loadedObjects.map(obj => ({
@@ -575,17 +705,24 @@ const completePolygon = () => {
     const area = calculatePolygonArea(currentPolygonPoints);
     
     // 多角形オブジェクトとして保存
-    const polygonObject: DroneObject = {
+    const polygonObject = {
         id: `polygon_${Date.now()}`,
         name: `検査エリア_${loadedObjects.filter(obj => obj.type === 'polygon').length + 1}`,
         longitude: currentPolygonPoints[0][0], // 中心点代表座標
         latitude: currentPolygonPoints[0][1],
         altitude: 0,
-        type: 'polygon',
-        source: 'polygon_draw'
-    } as DroneObject;
+        type: 'polygon' as const,
+        source: 'polygon_draw',
+        geometry: {
+            type: 'Polygon',
+            coordinates: [closedPoints]
+        },
+        area: area
+    } as DroneObject & { geometry: any, area: number };
     
     loadedObjects.push(polygonObject);
+    console.log('多角形オブジェクトを追加:', polygonObject);
+    console.log('現在のloadedObjects:', loadedObjects);
     
     resetPolygonDrawing();
     updateDisplay();
@@ -616,6 +753,197 @@ const resetPolygonDrawing = () => {
         type: 'FeatureCollection',
         features: []
     });
+};
+
+// オブジェクト選択機能
+const selectObject = (lngLat: maplibregl.LngLat) => {
+    const point = map.project(lngLat);
+    const tolerance = 20; // クリック許容範囲（ピクセル）
+    
+    // 最も近いオブジェクトを探す
+    let closestObject: DroneObject | null = null;
+    let minDistance = Infinity;
+    
+    loadedObjects.forEach(obj => {
+        const objPoint = map.project([obj.longitude, obj.latitude]);
+        const distance = Math.sqrt(
+            Math.pow(point.x - objPoint.x, 2) + 
+            Math.pow(point.y - objPoint.y, 2)
+        );
+        
+        if (distance < tolerance && distance < minDistance) {
+            minDistance = distance;
+            closestObject = obj;
+        }
+    });
+    
+    if (closestObject) {
+        selectedObject = closestObject;
+        updateSelectedObjectDisplay();
+        showToast(`「${closestObject.name}」を選択しました`, 'info');
+        return true;
+    } else {
+        deselectObject();
+        return false;
+    }
+};
+
+const deselectObject = () => {
+    selectedObject = null;
+    updateSelectedObjectDisplay();
+};
+
+const updateSelectedObjectDisplay = () => {
+    if (!selectedObject) {
+        (map.getSource('selected-object') as maplibregl.GeoJSONSource).setData({
+            type: 'FeatureCollection',
+            features: []
+        });
+        return;
+    }
+    
+    const features = [];
+    
+    if (selectedObject.type === 'polygon') {
+        // 多角形の場合は形状を表示
+        const polygonData = selectedObject as any; // 拡張プロパティアクセス用
+        if (polygonData.geometry && polygonData.geometry.coordinates) {
+            features.push({
+                type: 'Feature' as const,
+                geometry: polygonData.geometry,
+                properties: {
+                    id: selectedObject.id,
+                    type: 'selected-polygon'
+                }
+            });
+            
+            // 各頂点も表示
+            polygonData.geometry.coordinates[0].slice(0, -1).forEach((coord: [number, number], index: number) => {
+                features.push({
+                    type: 'Feature' as const,
+                    geometry: {
+                        type: 'Point' as const,
+                        coordinates: coord
+                    },
+                    properties: {
+                        id: selectedObject!.id,
+                        type: 'selected-vertex',
+                        vertexIndex: index
+                    }
+                });
+            });
+        }
+    } else {
+        // 点の場合
+        features.push({
+            type: 'Feature' as const,
+            geometry: {
+                type: 'Point' as const,
+                coordinates: [selectedObject.longitude, selectedObject.latitude]
+            },
+            properties: {
+                id: selectedObject.id,
+                type: 'selected-point'
+            }
+        });
+    }
+    
+    (map.getSource('selected-object') as maplibregl.GeoJSONSource).setData({
+        type: 'FeatureCollection',
+        features: features
+    });
+};
+
+// マップ操作制御関数
+const disableMapInteraction = () => {
+    map.dragPan.disable();
+    map.scrollZoom.disable();
+    map.boxZoom.disable();
+    map.dragRotate.disable();
+    map.keyboard.disable();
+    map.doubleClickZoom.disable();
+    map.touchZoomRotate.disable();
+};
+
+const enableMapInteraction = () => {
+    map.dragPan.enable();
+    map.scrollZoom.enable();
+    map.boxZoom.enable();
+    map.dragRotate.enable();
+    map.keyboard.enable();
+    map.doubleClickZoom.enable();
+    map.touchZoomRotate.enable();
+};
+
+// オブジェクト移動機能
+const startDragObject = (lngLat: maplibregl.LngLat) => {
+    if (!selectedObject) return false;
+    
+    isDragging = true;
+    dragStartPos = [lngLat.lng, lngLat.lat];
+    map.getCanvas().style.cursor = 'grabbing';
+    
+    // オブジェクトドラッグ中はマップ操作を無効化
+    disableMapInteraction();
+    
+    return true;
+};
+
+const dragObject = (lngLat: maplibregl.LngLat) => {
+    if (!isDragging || !selectedObject || !dragStartPos) return;
+    
+    const deltaLng = lngLat.lng - dragStartPos[0];
+    const deltaLat = lngLat.lat - dragStartPos[1];
+    
+    if (selectedObject.type === 'polygon') {
+        // 多角形の場合は全頂点を移動
+        const polygonData = selectedObject as any;
+        if (polygonData.geometry && polygonData.geometry.coordinates) {
+            polygonData.geometry.coordinates[0] = polygonData.geometry.coordinates[0].map((coord: [number, number]) => [
+                coord[0] + deltaLng,
+                coord[1] + deltaLat
+            ]);
+        }
+    }
+    
+    // オブジェクトの基準座標を更新
+    selectedObject.longitude += deltaLng;
+    selectedObject.latitude += deltaLat;
+    
+    dragStartPos = [lngLat.lng, lngLat.lat];
+    updateDisplay();
+    updateSelectedObjectDisplay();
+};
+
+const endDragObject = () => {
+    if (isDragging && selectedObject) {
+        isDragging = false;
+        dragStartPos = null;
+        map.getCanvas().style.cursor = editMode ? 'crosshair' : '';
+        
+        // マップ操作を再有効化
+        enableMapInteraction();
+        
+        showToast(`「${selectedObject.name}」を移動しました`, 'success');
+    }
+};
+
+// オブジェクト削除機能
+const deleteSelectedObject = () => {
+    if (!selectedObject) {
+        showToast('削除するオブジェクトが選択されていません', 'warning');
+        return;
+    }
+    
+    const objectName = selectedObject.name;
+    const confirmed = confirm(`「${objectName}」を削除しますか？`);
+    
+    if (confirmed) {
+        loadedObjects = loadedObjects.filter(obj => obj.id !== selectedObject!.id);
+        deselectObject();
+        updateDisplay();
+        showToast(`「${objectName}」を削除しました`, 'success');
+    }
 };
 
 // オブジェクト追加
@@ -785,14 +1113,14 @@ const setupEventHandlers = () => {
             polygonDrawingMode = false; // 他のモードを無効化
             const polygonButton = document.getElementById('togglePolygonMode');
             if (polygonButton) {
-                polygonButton.textContent = '多角形';
+                polygonButton.textContent = '多角形作成';
             }
             resetPolygonDrawing();
         }
         
         const button = document.getElementById('toggleDrawMode');
         if (button) {
-            button.textContent = drawMode ? '描画モード停止' : '描画モード';
+            button.textContent = drawMode ? 'ポイント作成停止' : 'ポイント作成';
         }
         map.getCanvas().style.cursor = drawMode ? 'crosshair' : '';
         updateStatus(drawMode ? '描画モード有効 - マップをクリックして点検ポイントを追加' : '描画モード無効');
@@ -810,16 +1138,110 @@ const setupEventHandlers = () => {
                 drawButton.textContent = '描画モード';
             }
         } else {
-            resetPolygonDrawing(); // 描画中のデータをクリア
+            // 多角形描画停止時は描画中のデータのみクリア（完成した多角形は保持）
+            resetPolygonDrawing();
         }
         
         const button = document.getElementById('togglePolygonMode');
         if (button) {
-            button.textContent = polygonDrawingMode ? '多角形停止' : '多角形';
+            button.textContent = polygonDrawingMode ? '多角形作成停止' : '多角形作成';
         }
         map.getCanvas().style.cursor = polygonDrawingMode ? 'crosshair' : '';
         updateStatus(polygonDrawingMode ? '多角形描画モード有効 - クリックして頂点を追加、始点をクリックして完成' : '多角形描画モード無効');
         showToast(polygonDrawingMode ? '多角形描画モードを有効にしました' : '多角形描画モードを無効にしました', 'info');
+    });
+
+    // 編集モード切り替え
+    document.getElementById('toggleEditMode')?.addEventListener('click', () => {
+        editMode = !editMode;
+        
+        if (editMode) {
+            drawMode = false;
+            polygonDrawingMode = false;
+            const drawButton = document.getElementById('toggleDrawMode');
+            const polygonButton = document.getElementById('togglePolygonMode');
+            if (drawButton) drawButton.textContent = 'ポイント作成';
+            if (polygonButton) polygonButton.textContent = '多角形作成';
+            resetPolygonDrawing();
+        } else {
+            deselectObject();
+        }
+        
+        const button = document.getElementById('toggleEditMode');
+        if (button) {
+            button.textContent = editMode ? 'オブジェクト編集停止' : 'オブジェクト編集';
+        }
+        map.getCanvas().style.cursor = editMode ? 'crosshair' : '';
+        updateStatus(editMode ? '編集モード有効 - オブジェクトをクリックして選択、ドラッグで移動、Deleteキーで削除' : '編集モード無効');
+        showToast(editMode ? '編集モードを有効にしました' : '編集モードを無効にしました', 'info');
+    });
+
+    // CSVインポート
+    document.getElementById('importCSV')?.addEventListener('click', () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.csv';
+        input.onchange = async (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (file) {
+                try {
+                    updateStatus('CSVファイル読み込み中...');
+                    const csvContent = await file.text();
+                    const importedObjects = parseDroneCSV(csvContent, file.name);
+                    
+                    if (importedObjects.length > 0) {
+                        loadedObjects.push(...importedObjects);
+                        updateDisplay();
+                        updateStatus(`CSV読み込み完了: ${importedObjects.length}個のオブジェクト`);
+                        showToast(`CSVから${importedObjects.length}個のオブジェクトをインポートしました`, 'success');
+                        addFlightLog('データ管理', 'CSVインポート', `${file.name}から${importedObjects.length}個のオブジェクトを読み込み`, 'success');
+                    } else {
+                        showToast('CSVファイルからデータを読み込めませんでした', 'warning');
+                        addFlightLog('データ管理', 'CSVインポート', 'CSVファイルの読み込みに失敗', 'warning');
+                    }
+                } catch (error) {
+                    console.error('CSVインポートエラー:', error);
+                    showToast('CSVファイルの読み込みに失敗しました', 'error');
+                    addFlightLog('データ管理', 'CSVインポートエラー', `${file.name}の読み込みに失敗`, 'error');
+                    updateStatus('CSVインポートエラー');
+                }
+            }
+        };
+        input.click();
+    });
+
+    // GeoJSONインポート
+    document.getElementById('importGeoJSON')?.addEventListener('click', () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.geojson,.json';
+        input.onchange = async (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (file) {
+                try {
+                    updateStatus('GeoJSONファイル読み込み中...');
+                    const jsonContent = await file.text();
+                    const importedObjects = parseGeoJSON(jsonContent, file.name);
+                    
+                    if (importedObjects.length > 0) {
+                        loadedObjects.push(...importedObjects);
+                        updateDisplay();
+                        updateStatus(`GeoJSON読み込み完了: ${importedObjects.length}個のオブジェクト`);
+                        showToast(`GeoJSONから${importedObjects.length}個のオブジェクトをインポートしました`, 'success');
+                        addFlightLog('データ管理', 'GeoJSONインポート', `${file.name}から${importedObjects.length}個のオブジェクトを読み込み`, 'success');
+                    } else {
+                        showToast('GeoJSONファイルからデータを読み込めませんでした', 'warning');
+                        addFlightLog('データ管理', 'GeoJSONインポート', 'GeoJSONファイルの読み込みに失敗', 'warning');
+                    }
+                } catch (error) {
+                    console.error('GeoJSONインポートエラー:', error);
+                    showToast('GeoJSONファイルの読み込みに失敗しました', 'error');
+                    addFlightLog('データ管理', 'GeoJSONインポートエラー', `${file.name}の読み込みに失敗`, 'error');
+                    updateStatus('GeoJSONインポートエラー');
+                }
+            }
+        };
+        input.click();
     });
 
     // CSVエクスポート
@@ -907,16 +1329,17 @@ const setupEventHandlers = () => {
         console.log('Toggleボタンがクリックされました');
         console.log('FlightLog要素:', flightLog);
         console.log('Toggleボタン要素:', toggleButton);
-        console.log('現在のFlightLog表示状態:', flightLog?.classList.contains('hidden'));
+        console.log('現在のFlightLog表示状態:', flightLog?.classList.contains('visible'));
         
         if (flightLog && toggleButton) {
             // ログリストの表示状態を判定
-            const isCurrentlyVisible = !flightLog.classList.contains('hidden');
+            const isCurrentlyVisible = flightLog.classList.contains('visible');
             
             console.log('現在の表示状態:', isCurrentlyVisible);
             
             if (isCurrentlyVisible) {
                 // ログリストを非表示にする
+                flightLog.classList.remove('visible');
                 flightLog.classList.add('hidden');
                 toggleButton.textContent = 'ログ表示';
                 addFlightLog('システム', 'ログ表示切替', 'ログ表示を無効にしました', 'info');
@@ -924,6 +1347,7 @@ const setupEventHandlers = () => {
             } else {
                 // ログリストを表示にする
                 flightLog.classList.remove('hidden');
+                flightLog.classList.add('visible');
                 toggleButton.textContent = 'ログ非表示';
                 addFlightLog('システム', 'ログ表示切替', 'ログ表示を有効にしました', 'info');
                 console.log('ログリストを表示にしました');
@@ -941,18 +1365,23 @@ const startFlightPlan = () => {
         return;
     }
 
+    if (currentFlightPlan.length === 0) {
+        addFlightLog('エラー', 'フライトプラン', '実行可能なフライトプランがありません', 'error');
+        return;
+    }
+
     flightPlanActive = true;
     currentFlightPhase = 0;
     
-    addFlightLog('システム', 'フライトプラン開始', '東京タワー点検フライトプランを開始します', 'success');
+    addFlightLog('システム', 'フライトプラン開始', `${currentFlightPlanName}を開始します`, 'success');
     
     // ドローンオブジェクトを作成
     if (loadedObjects.length === 0) {
         const droneObject: DroneObject = {
             id: 'inspection-drone-1',
-            name: '東京タワー点検ドローン',
-            longitude: 139.7454,
-            latitude: 35.6586,
+            name: `${currentFlightPlanName}ドローン`,
+            longitude: currentFlightPlan[0].position[0],
+            latitude: currentFlightPlan[0].position[1],
             altitude: 0,
             type: 'drone',
             source: 'flight-plan'
@@ -965,12 +1394,12 @@ const startFlightPlan = () => {
 };
 
 const executeFlightPhase = () => {
-    if (!flightPlanActive || currentFlightPhase >= flightPlan.length) {
+    if (!flightPlanActive || currentFlightPhase >= currentFlightPlan.length) {
         completeFlightPlan();
         return;
     }
     
-    const phase = flightPlan[currentFlightPhase];
+    const phase = currentFlightPlan[currentFlightPhase];
     const drone = loadedObjects.find(obj => obj.type === 'drone');
     
     if (!drone) {
@@ -1013,17 +1442,17 @@ const pauseFlightPlan = () => {
 
 const completeFlightPlan = () => {
     flightPlanActive = false;
-    addFlightLog('システム', 'フライトプラン完了', '東京タワー点検フライトプランが完了しました', 'success');
+    addFlightLog('システム', 'フライトプラン完了', `${currentFlightPlanName}が完了しました`, 'success');
     showToast('フライトプランが完了しました', 'success');
 };
 
 const exportFlightPlan = () => {
-    const planData = {
-        name: '東京タワー点検フライトプラン',
-        description: '東京タワー周辺の包括的点検フライトプラン',
+    const planData: FlightPlanData = {
+        name: currentFlightPlanName,
+        description: currentFlightPlanDescription,
         created: new Date().toISOString(),
-        phases: flightPlan,
-        totalDuration: flightPlan.reduce((sum, phase) => sum + phase.duration, 0)
+        phases: currentFlightPlan,
+        totalDuration: currentFlightPlan.reduce((sum, phase) => sum + phase.duration, 0)
     };
     
     const jsonContent = JSON.stringify(planData, null, 2);
@@ -1031,7 +1460,7 @@ const exportFlightPlan = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `tokyo_tower_flight_plan_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+    a.download = `${currentFlightPlanName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1050,10 +1479,30 @@ const importFlightPlan = () => {
             const reader = new FileReader();
             reader.onload = (e) => {
                 try {
-                    const planData = JSON.parse(e.target?.result as string);
-                    // フライトプランの読み込み処理
+                    const planData: FlightPlanData = JSON.parse(e.target?.result as string);
+                    
+                    // フライトプランの検証
+                    if (!planData.name || !planData.phases || !Array.isArray(planData.phases)) {
+                        throw new Error('無効なフライトプランファイルです');
+                    }
+                    
+                    // 現在のフライトプランを更新
+                    currentFlightPlan = planData.phases;
+                    currentFlightPlanName = planData.name;
+                    currentFlightPlanDescription = planData.description || '';
+                    
                     addFlightLog('システム', 'フライトプランインポート', `${planData.name}をインポートしました`, 'success');
                     showToast('フライトプランをインポートしました', 'success');
+                    
+                    // 地図をフライトプランの開始位置に移動
+                    if (planData.phases.length > 0) {
+                        const startPosition = planData.phases[0].position;
+                        map.flyTo({
+                            center: [startPosition[0], startPosition[1]],
+                            zoom: 16,
+                            duration: 2000
+                        });
+                    }
                 } catch (error) {
                     addFlightLog('エラー', 'フライトプランインポート', 'ファイルの読み込みに失敗しました', 'error');
                     showToast('フライトプランの読み込みに失敗しました', 'error');
@@ -1067,10 +1516,84 @@ const importFlightPlan = () => {
 
 // 地図のクリックイベント
 map.on('click', (e) => {
+    // ドラッグ直後のクリックイベントを無視
+    if (isDragging) {
+        return;
+    }
+    
     if (polygonDrawingMode) {
         handlePolygonClick(e.lngLat);
     } else if (drawMode) {
         addObjectAtLocation(e.lngLat);
+    } else if (editMode) {
+        const objectSelected = selectObject(e.lngLat);
+        // オブジェクトが選択されなかった場合は選択解除
+        if (!objectSelected) {
+            deselectObject();
+        }
+    }
+});
+
+// マウスダウンイベント（ドラッグ開始）
+map.on('mousedown', (e) => {
+    if (editMode) {
+        // クリック位置でオブジェクトを検出
+        const point = map.project(e.lngLat);
+        const tolerance = 20;
+        
+        let objectFound = false;
+        loadedObjects.forEach(obj => {
+            const objPoint = map.project([obj.longitude, obj.latitude]);
+            const distance = Math.sqrt(
+                Math.pow(point.x - objPoint.x, 2) + 
+                Math.pow(point.y - objPoint.y, 2)
+            );
+            
+            if (distance < tolerance) {
+                objectFound = true;
+                if (selectedObject && selectedObject.id === obj.id) {
+                    // 既に選択されているオブジェクトをクリックした場合、ドラッグ開始
+                    startDragObject(e.lngLat);
+                    e.preventDefault();
+                }
+            }
+        });
+        
+        // オブジェクトがない場所でのマウスダウンの場合は通常のマップ操作を許可
+        if (!objectFound && isDragging) {
+            endDragObject();
+        }
+    }
+});
+
+// マウス移動イベント（ドラッグ中）
+map.on('mousemove', (e) => {
+    if (editMode && isDragging) {
+        e.preventDefault();
+        dragObject(e.lngLat);
+    }
+});
+
+// マウスアップイベント（ドラッグ終了）
+map.on('mouseup', (e) => {
+    if (editMode && isDragging) {
+        e.preventDefault();
+        endDragObject();
+    }
+});
+
+// キーボードイベント（削除キー）
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (editMode && selectedObject) {
+            e.preventDefault();
+            deleteSelectedObject();
+        }
+    }
+    if (e.key === 'Escape') {
+        if (editMode) {
+            deselectObject();
+        }
     }
 });
 
@@ -1093,6 +1616,7 @@ map.on('load', () => {
         if (flightLog && toggleButton) {
             // ログリストを表示状態に設定
             flightLog.classList.remove('hidden');
+            flightLog.classList.add('visible');
             toggleButton.textContent = 'ログ非表示';
             console.log('ログリストを初期表示状態に設定しました');
         } else {
