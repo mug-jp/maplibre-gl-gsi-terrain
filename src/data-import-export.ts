@@ -203,13 +203,30 @@ export const parseDroneFlightLogData = (csvContent: string): DroneFlightLog[] =>
 
 // 建物点検データのパース処理
 export const parseBuildingInspectionData = (csvContent: string): Point3D[] => {
+    console.log('建物点検データパース開始');
+    console.log('CSV内容（最初の500文字）:', csvContent.substring(0, 500));
+    
     const lines = csvContent.split('\n').filter(line => line.trim());
+    console.log('CSV行数:', lines.length);
+    
+    if (lines.length < 2) {
+        console.error('CSVデータが不足しています');
+        throw new Error('建物点検データの形式が正しくありません');
+    }
+    
     const headers = lines[0].split(',').map(h => h.trim());
+    console.log('ヘッダー:', headers);
+    
     const data: Point3D[] = [];
     
     for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(',').map(v => v.trim());
-        if (values.length >= 6) {
+        try {
+            const values = lines[i].split(',').map(v => v.trim());
+            if (values.length < 6) {
+                console.warn(`行 ${i} のデータが不完全です:`, values);
+                continue;
+            }
+            
             const point: Point3D = {
                 x: parseFloat(values[0]),
                 y: parseFloat(values[1]),
@@ -224,22 +241,49 @@ export const parseBuildingInspectionData = (csvContent: string): Point3D[] => {
                 }
             };
             
+            if (isNaN(point.x) || isNaN(point.y) || isNaN(point.z)) {
+                console.warn(`行 ${i} の座標データが無効です:`, values);
+                continue;
+            }
+            
             data.push(point);
+        } catch (error) {
+            console.error(`行 ${i} のパースエラー:`, error, lines[i]);
         }
     }
+    
+    console.log('パース完了:', data.length, '個のポイント');
+    console.log('最初の3つのポイント:', data.slice(0, 3));
     
     return data;
 };
 
 // 建物点検メッシュデータのパース処理
 export const parseBuildingInspectionMeshData = (csvContent: string): MeshVertex[] => {
+    console.log('建物点検メッシュデータパース開始');
+    console.log('CSV内容（最初の500文字）:', csvContent.substring(0, 500));
+    
     const lines = csvContent.split('\n').filter(line => line.trim());
+    console.log('CSV行数:', lines.length);
+    
+    if (lines.length < 2) {
+        console.error('CSVデータが不足しています');
+        throw new Error('建物点検メッシュデータの形式が正しくありません');
+    }
+    
     const headers = lines[0].split(',').map(h => h.trim());
+    console.log('ヘッダー:', headers);
+    
     const data: MeshVertex[] = [];
     
     for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(',').map(v => v.trim());
-        if (values.length >= 6) {
+        try {
+            const values = lines[i].split(',').map(v => v.trim());
+            if (values.length < 6) {
+                console.warn(`行 ${i} のデータが不完全です:`, values);
+                continue;
+            }
+            
             const vertex: MeshVertex = {
                 x: parseFloat(values[0]),
                 y: parseFloat(values[1]),
@@ -253,9 +297,19 @@ export const parseBuildingInspectionMeshData = (csvContent: string): MeshVertex[
                 component_type: values[9] || 'unknown'
             };
             
+            if (isNaN(vertex.x) || isNaN(vertex.y) || isNaN(vertex.z)) {
+                console.warn(`行 ${i} の座標データが無効です:`, values);
+                continue;
+            }
+            
             data.push(vertex);
+        } catch (error) {
+            console.error(`行 ${i} のパースエラー:`, error, lines[i]);
         }
     }
+    
+    console.log('パース完了:', data.length, '個の頂点');
+    console.log('最初の3つの頂点:', data.slice(0, 3));
     
     return data;
 };

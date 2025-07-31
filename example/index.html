@@ -97,6 +97,119 @@
         .info-list li {
             margin-bottom: 5px;
         }
+        .footer {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+        .footer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 5px;
+        }
+        .footer-title {
+            font-weight: bold;
+            color: #00ff00;
+        }
+        .footer-controls {
+            display: flex;
+            gap: 10px;
+        }
+        .footer-controls button {
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            padding: 4px 8px;
+            font-size: 10px;
+            cursor: pointer;
+        }
+        .footer-controls button:hover {
+            background: #555;
+        }
+        .flight-log {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .log-entry {
+            display: flex;
+            gap: 10px;
+            padding: 2px 0;
+            border-bottom: 1px solid #333;
+        }
+        .log-timestamp {
+            color: #888;
+            min-width: 80px;
+        }
+        .log-phase {
+            color: #00ff00;
+            font-weight: bold;
+            min-width: 100px;
+        }
+        .log-action {
+            color: #ffff00;
+        }
+        .log-details {
+            color: #ccc;
+        }
+        .log-error {
+            color: #ff4444;
+        }
+        .log-success {
+            color: #44ff44;
+        }
+        .flight-plan-export {
+            position: absolute;
+            bottom: 220px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+            max-width: 300px;
+        }
+        .flight-plan-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        .flight-plan-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .flight-plan-buttons button {
+            background: #007cba;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .flight-plan-buttons button:hover {
+            background: #005a8b;
+        }
+        .flight-plan-buttons button.success {
+            background: #28a745;
+        }
+        .flight-plan-buttons button.warning {
+            background: #ffc107;
+            color: #212529;
+        }
     </style>
 </head>
 <body>
@@ -151,6 +264,37 @@
             <li><strong>4. 中心部撮影</strong>: 東京タワー中心部で詳細撮影</li>
             <li><strong>5. 着陸</strong>: 元の離陸地点に戻って着陸</li>
         </ul>
+    </div>
+
+    <!-- フライトプランエクスポートパネル -->
+    <div class="flight-plan-export">
+        <div class="flight-plan-title">🚁 フライトプラン管理</div>
+        <div class="flight-plan-buttons">
+            <button id="startFlightPlan" class="success">フライトプラン開始</button>
+            <button id="pauseFlightPlan" class="warning">一時停止</button>
+            <button id="exportFlightPlan" class="info">フライトプランエクスポート</button>
+            <button id="importFlightPlan" class="info">フライトプランインポート</button>
+        </div>
+    </div>
+
+    <!-- フライトログFooter -->
+    <div class="footer">
+        <div class="footer-header">
+            <div class="footer-title">📊 リアルタイムフライトログ</div>
+            <div class="footer-controls">
+                <button id="clearLog">ログクリア</button>
+                <button id="exportLog">ログエクスポート</button>
+                <button id="toggleLog">ログ表示切替</button>
+            </div>
+        </div>
+        <div id="flightLog" class="flight-log">
+            <div class="log-entry">
+                <span class="log-timestamp">--:--:--</span>
+                <span class="log-phase">システム</span>
+                <span class="log-action">初期化</span>
+                <span class="log-details">東京タワー点検システム準備完了</span>
+            </div>
+        </div>
     </div>
 
     <script type="module" src="./index.ts"></script>

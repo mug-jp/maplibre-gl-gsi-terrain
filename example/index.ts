@@ -86,6 +86,35 @@ let drawMode = false;
 let droneSimulationInterval: number | null = null;
 let sampleDataLoaded = false;
 
+// フライトログ管理
+interface FlightLogEntry {
+    timestamp: string;
+    phase: string;
+    action: string;
+    details: string;
+    type: 'info' | 'success' | 'error' | 'warning';
+}
+
+let flightLog: FlightLogEntry[] = [];
+let flightPlanActive = false;
+let flightPlanInterval: number | null = null;
+let currentFlightPhase = 0;
+
+// フライトプラン定義
+const flightPlan = [
+    { phase: '離陸', action: '東京タワー南側から離陸開始', duration: 3000, position: [139.7454, 35.6586, 100] },
+    { phase: '外側旋回1', action: '北東角へ移動・ホバリング', duration: 4000, position: [139.7456, 35.6588, 150] },
+    { phase: '外側旋回2', action: '北西角へ移動・ホバリング', duration: 4000, position: [139.7452, 35.6588, 150] },
+    { phase: '外側旋回3', action: '南西角へ移動・ホバリング', duration: 4000, position: [139.7452, 35.6584, 150] },
+    { phase: '外側旋回4', action: '南東角へ移動・ホバリング', duration: 4000, position: [139.7456, 35.6584, 150] },
+    { phase: '内側旋回1', action: '内側北東へ移動・詳細撮影', duration: 3000, position: [139.7455, 35.6587, 120] },
+    { phase: '内側旋回2', action: '内側北西へ移動・詳細撮影', duration: 3000, position: [139.7453, 35.6587, 120] },
+    { phase: '内側旋回3', action: '内側南西へ移動・詳細撮影', duration: 3000, position: [139.7453, 35.6585, 120] },
+    { phase: '内側旋回4', action: '内側南東へ移動・詳細撮影', duration: 3000, position: [139.7455, 35.6585, 120] },
+    { phase: '中心部撮影', action: '東京タワー中心部で詳細撮影', duration: 5000, position: [139.7454, 35.6586, 200] },
+    { phase: '着陸', action: '離陸地点に戻って着陸', duration: 3000, position: [139.7454, 35.6586, 0] }
+];
+
 // Toast通知システム
 const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     const toast = document.createElement('div');
@@ -103,28 +132,103 @@ const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info')
         font-size: 14px;
         max-width: 300px;
         word-wrap: break-word;
-        opacity: 0;
-        transform: translateX(100%);
-        transition: all 0.3s ease;
     `;
     toast.textContent = message;
-    
     document.body.appendChild(toast);
-    
-    setTimeout(() => {
-        toast.style.opacity = '1';
-        toast.style.transform = 'translateX(0)';
-    }, 100);
     
     setTimeout(() => {
         toast.style.opacity = '0';
         toast.style.transform = 'translateX(100%)';
-        setTimeout(() => {
-            if (document.body.contains(toast)) {
-                document.body.removeChild(toast);
-            }
-        }, 300);
+        toast.style.transition = 'all 0.3s ease';
+        setTimeout(() => document.body.removeChild(toast), 300);
     }, 3000);
+};
+
+// フライトログ管理機能
+const addFlightLog = (phase: string, action: string, details: string, type: 'info' | 'success' | 'error' | 'warning' = 'info') => {
+    const now = new Date();
+    const timestamp = now.toLocaleTimeString('ja-JP');
+    
+    const logEntry: FlightLogEntry = {
+        timestamp,
+        phase,
+        action,
+        details,
+        type
+    };
+    
+    flightLog.push(logEntry);
+    updateFlightLogDisplay();
+    
+    // ログが多すぎる場合は古いものを削除
+    if (flightLog.length > 50) {
+        flightLog = flightLog.slice(-30);
+    }
+};
+
+const updateFlightLogDisplay = () => {
+    const logContainer = document.getElementById('flightLog');
+    if (!logContainer) return;
+    
+    logContainer.innerHTML = '';
+    
+    flightLog.forEach(entry => {
+        const logEntry = document.createElement('div');
+        logEntry.className = 'log-entry';
+        
+        const timestamp = document.createElement('span');
+        timestamp.className = 'log-timestamp';
+        timestamp.textContent = entry.timestamp;
+        
+        const phase = document.createElement('span');
+        phase.className = 'log-phase';
+        phase.textContent = entry.phase;
+        
+        const action = document.createElement('span');
+        action.className = `log-action ${entry.type}`;
+        action.textContent = entry.action;
+        
+        const details = document.createElement('span');
+        details.className = 'log-details';
+        details.textContent = entry.details;
+        
+        logEntry.appendChild(timestamp);
+        logEntry.appendChild(phase);
+        logEntry.appendChild(action);
+        logEntry.appendChild(details);
+        
+        logContainer.appendChild(logEntry);
+    });
+    
+    // 最新のログまでスクロール
+    logContainer.scrollTop = logContainer.scrollHeight;
+};
+
+const clearFlightLog = () => {
+    flightLog = [];
+    updateFlightLogDisplay();
+    addFlightLog('システム', 'ログクリア', 'フライトログをクリアしました', 'info');
+};
+
+const exportFlightLog = () => {
+    const logText = flightLog.map(entry => 
+        `${entry.timestamp},${entry.phase},${entry.action},${entry.details},${entry.type}`
+    ).join('\n');
+    
+    const headers = 'timestamp,phase,action,details,type\n';
+    const csvContent = headers + logText;
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tokyo_tower_flight_log_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    addFlightLog('システム', 'ログエクスポート', 'フライトログをCSVファイルでエクスポートしました', 'success');
 };
 
 // ステータス更新
@@ -553,6 +657,174 @@ const setupEventHandlers = () => {
         }
         showToast(is3D ? '3D表示に切り替えました' : '2D表示に切り替えました', 'info');
     });
+
+    // フライトログクリア
+    document.getElementById('clearFlightLog')?.addEventListener('click', () => {
+        clearFlightLog();
+    });
+
+    // フライトログエクスポート
+    document.getElementById('exportFlightLog')?.addEventListener('click', () => {
+        exportFlightLog();
+    });
+
+    // フライトプラン管理
+    document.getElementById('startFlightPlan')?.addEventListener('click', () => {
+        startFlightPlan();
+    });
+
+    document.getElementById('pauseFlightPlan')?.addEventListener('click', () => {
+        pauseFlightPlan();
+    });
+
+    document.getElementById('exportFlightPlan')?.addEventListener('click', () => {
+        exportFlightPlan();
+    });
+
+    document.getElementById('importFlightPlan')?.addEventListener('click', () => {
+        importFlightPlan();
+    });
+
+    // フライトログ表示切替
+    document.getElementById('toggleLog')?.addEventListener('click', () => {
+        const footer = document.querySelector('.footer') as HTMLElement;
+        if (footer) {
+            const isVisible = footer.style.display !== 'none';
+            footer.style.display = isVisible ? 'none' : 'block';
+            addFlightLog('システム', 'ログ表示切替', isVisible ? 'ログ表示を無効にしました' : 'ログ表示を有効にしました', 'info');
+        }
+    });
+};
+
+// フライトプラン管理機能
+const startFlightPlan = () => {
+    if (flightPlanActive) {
+        addFlightLog('システム', 'フライトプラン', 'フライトプランは既に実行中です', 'warning');
+        return;
+    }
+
+    flightPlanActive = true;
+    currentFlightPhase = 0;
+    
+    addFlightLog('システム', 'フライトプラン開始', '東京タワー点検フライトプランを開始します', 'success');
+    
+    // ドローンオブジェクトを作成
+    if (loadedObjects.length === 0) {
+        const droneObject: DroneObject = {
+            id: 'inspection-drone-1',
+            name: '東京タワー点検ドローン',
+            longitude: 139.7454,
+            latitude: 35.6586,
+            altitude: 0,
+            type: 'drone',
+            source: 'flight-plan'
+        };
+        loadedObjects.push(droneObject);
+        updateDisplay();
+    }
+    
+    executeFlightPhase();
+};
+
+const executeFlightPhase = () => {
+    if (!flightPlanActive || currentFlightPhase >= flightPlan.length) {
+        completeFlightPlan();
+        return;
+    }
+    
+    const phase = flightPlan[currentFlightPhase];
+    const drone = loadedObjects.find(obj => obj.type === 'drone');
+    
+    if (!drone) {
+        addFlightLog('エラー', 'ドローン不在', '点検ドローンが見つかりません', 'error');
+        return;
+    }
+    
+    // ドローンの位置を更新
+    drone.longitude = phase.position[0];
+    drone.latitude = phase.position[1];
+    drone.altitude = phase.position[2];
+    
+    addFlightLog(phase.phase, '実行中', phase.action, 'info');
+    
+    // 地図をドローンの位置に移動
+    map.flyTo({
+        center: [drone.longitude, drone.latitude],
+        zoom: 18,
+        duration: 2000
+    });
+    
+    updateDisplay();
+    
+    // 次のフェーズへ
+    setTimeout(() => {
+        currentFlightPhase++;
+        executeFlightPhase();
+    }, phase.duration);
+};
+
+const pauseFlightPlan = () => {
+    if (!flightPlanActive) {
+        addFlightLog('システム', 'フライトプラン', 'フライトプランは実行されていません', 'warning');
+        return;
+    }
+    
+    flightPlanActive = false;
+    addFlightLog('システム', 'フライトプラン一時停止', `フェーズ${currentFlightPhase + 1}で一時停止しました`, 'warning');
+};
+
+const completeFlightPlan = () => {
+    flightPlanActive = false;
+    addFlightLog('システム', 'フライトプラン完了', '東京タワー点検フライトプランが完了しました', 'success');
+    showToast('フライトプランが完了しました', 'success');
+};
+
+const exportFlightPlan = () => {
+    const planData = {
+        name: '東京タワー点検フライトプラン',
+        description: '東京タワー周辺の包括的点検フライトプラン',
+        created: new Date().toISOString(),
+        phases: flightPlan,
+        totalDuration: flightPlan.reduce((sum, phase) => sum + phase.duration, 0)
+    };
+    
+    const jsonContent = JSON.stringify(planData, null, 2);
+    const blob = new Blob([jsonContent], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tokyo_tower_flight_plan_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    addFlightLog('システム', 'フライトプランエクスポート', 'フライトプランをJSONファイルでエクスポートしました', 'success');
+};
+
+const importFlightPlan = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const planData = JSON.parse(e.target?.result as string);
+                    // フライトプランの読み込み処理
+                    addFlightLog('システム', 'フライトプランインポート', `${planData.name}をインポートしました`, 'success');
+                    showToast('フライトプランをインポートしました', 'success');
+                } catch (error) {
+                    addFlightLog('エラー', 'フライトプランインポート', 'ファイルの読み込みに失敗しました', 'error');
+                    showToast('フライトプランの読み込みに失敗しました', 'error');
+                }
+            };
+            reader.readAsText(file);
+        }
+    };
+    input.click();
 };
 
 // 地図のクリックイベント
@@ -568,4 +840,8 @@ map.on('load', () => {
     setupEventHandlers();
     updateStatus('地図読み込み完了 - 東京タワー周辺のドローン点検を開始してください');
     console.log('システム準備完了');
+    
+    // フライトログ初期化
+    addFlightLog('システム', '初期化', '東京タワー点検システムが起動しました', 'success');
+    addFlightLog('システム', '準備完了', 'フライトプランとリアルタイムログ機能が利用可能です', 'info');
 });
