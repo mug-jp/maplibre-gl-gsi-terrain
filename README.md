@@ -24,6 +24,8 @@ npm install maplibre-gl-gsi-terrain
 
 ## 使い方
 
+### 基本的な地形表示
+
 ```typescript
 import maplibregl from 'maplibre-gl';
 import { useGsiTerrainSource } from 'maplibre-gl-gsi-terrain';
@@ -63,6 +65,35 @@ const map = new maplibregl.Map({
         },
     },
 });
+```
+
+### 3Dデータのインポート/エクスポート
+
+```typescript
+import { importDataFromFile, exportDataToCSV, clearData } from 'maplibre-gl-gsi-terrain';
+
+// CSVファイルから3Dデータをインポート
+const fileInput = document.getElementById('file-input') as HTMLInputElement;
+fileInput.addEventListener('change', async (event) => {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    if (file) {
+        await importDataFromFile(file, map, 'points'); // または 'mesh'
+    }
+});
+
+// データをエクスポート
+const exportData = () => {
+    const csvContent = exportDataToCSV(data);
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'exported-data.csv';
+    a.click();
+};
+
+// データをクリア
+clearData(map);
 ```
 
 `useGsiTerrainSource()`は第2引数でオプションを受け取ります。

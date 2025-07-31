@@ -1,13 +1,158 @@
 <!DOCTYPE html>
-<html lang="en">
-	<head>
-		<meta charset="UTF-8" />
-		<link rel="icon" type="image/svg+xml" href="/vite.svg" />
-		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>maplibre-gl-gsi-terrain</title>
-	</head>
-	<body style="margin: 0">
-		<div id="app" style="height: 100vh"></div>
-		<script type="module" src="./index.ts"></script>
-	</body>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>東京タワー周辺 ドローン点検システム</title>
+    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+        #map {
+            width: 100vw;
+            height: 100vh;
+        }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+            max-width: 350px;
+            backdrop-filter: blur(10px);
+        }
+        .control-section {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 6px;
+        }
+        .section-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #495057;
+            font-size: 14px;
+        }
+        button {
+            background: #007cba;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 3px;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+        button:hover {
+            background: #005a8b;
+            transform: translateY(-1px);
+        }
+        button.success { background: #28a745; }
+        button.error { background: #dc3545; }
+        button.info { background: #17a2b8; }
+        button.warning { background: #ffc107; color: #212529; }
+        .button-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+        #status {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #666;
+            padding: 8px;
+            background: #e9ecef;
+            border-radius: 4px;
+        }
+        .info-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+            max-width: 300px;
+            backdrop-filter: blur(10px);
+        }
+        .info-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #495057;
+        }
+        .info-list {
+            font-size: 12px;
+            color: #666;
+            line-height: 1.4;
+        }
+        .info-list li {
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <!-- メインコントロールパネル -->
+    <div id="controls">
+        <h3 style="margin: 0 0 15px 0; color: #333;">🗼 東京タワー周辺 ドローン点検システム</h3>
+        
+        <!-- サンプルデータセクション -->
+        <div class="control-section">
+            <div class="section-title">📊 サンプルデータ</div>
+            <div class="button-group">
+                <button id="loadPoints" class="success">ポイントデータ読み込み</button>
+                <button id="loadMesh" class="info">メッシュデータ読み込み</button>
+                <button id="loadBuilding" class="warning">建物点検データ</button>
+                <button id="toggle3D" class="info">2D/3D切り替え</button>
+            </div>
+        </div>
+
+        <!-- ドローン点検セクション -->
+        <div class="control-section">
+            <div class="section-title">🚁 ドローン点検</div>
+            <div class="button-group">
+                <button id="loadDroneData" class="success">点検ドローン配置</button>
+                <button id="startSimulation" class="info">飛行シミュレーション</button>
+                <button id="toggleDrawMode" class="warning">描画モード</button>
+            </div>
+        </div>
+
+        <!-- データ管理セクション -->
+        <div class="control-section">
+            <div class="section-title">💾 データ管理</div>
+            <div class="button-group">
+                <button id="exportCSV" class="info">CSVエクスポート</button>
+                <button id="exportGeoJSON" class="info">GeoJSONエクスポート</button>
+                <button id="clearData" class="error">データクリア</button>
+            </div>
+        </div>
+
+        <!-- ステータス表示 -->
+        <div id="status">地図読み込み中...</div>
+    </div>
+
+    <!-- 情報パネル -->
+    <div class="info-panel">
+        <div class="info-title">🗼 東京タワー点検ワークフロー</div>
+        <ul class="info-list">
+            <li><strong>1. 離陸</strong>: 東京タワー南側から開始</li>
+            <li><strong>2. 外側旋回</strong>: 4つの角でホバリング・撮影</li>
+            <li><strong>3. 内側旋回</strong>: 詳細撮影のため内側でも旋回</li>
+            <li><strong>4. 中心部撮影</strong>: 東京タワー中心部で詳細撮影</li>
+            <li><strong>5. 着陸</strong>: 元の離陸地点に戻って着陸</li>
+        </ul>
+    </div>
+
+    <script type="module" src="./index.ts"></script>
+</body>
 </html>

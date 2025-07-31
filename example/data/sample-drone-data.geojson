@@ -1,0 +1,80 @@
+{
+  "type": "FeatureCollection",
+  "metadata": {
+    "export_time": "2024-01-01T00:00:00.000Z",
+    "total_objects": 10,
+    "generator": "MapLibre GSI Terrain System"
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [139.6917, 35.6895, 100]
+      },
+      "properties": {
+        "name": "ドローン001",
+        "type": "drone",
+        "altitude": 100,
+        "source": "sample",
+        "id": "sample_drone_1"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [139.6920, 35.6898, 80]
+      },
+      "properties": {
+        "name": "ドローン002",
+        "type": "drone",
+        "altitude": 80,
+        "source": "sample",
+        "id": "sample_drone_2"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [139.6915, 35.6892, 120]
+      },
+      "properties": {
+        "name": "基地局001",
+        "type": "base",
+        "altitude": 120,
+        "source": "sample",
+        "id": "sample_base_1"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [139.6922, 35.6890, 50]
+      },
+      "properties": {
+        "name": "センサー001",
+        "type": "sensor",
+        "altitude": 50,
+        "source": "sample",
+        "id": "sample_sensor_1"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [139.6910, 35.6900, 200]
+      },
+      "properties": {
+        "name": "建物001",
+        "type": "building",
+        "altitude": 200,
+        "source": "sample",
+        "id": "sample_building_1"
+      }
+    }
+  ]
+}

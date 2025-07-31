@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MapLibre 3Dデータ取り込み完全版</title>
+  <script src="https://unpkg.com/maplibre-gl@5.0.0/dist/maplibre-gl.js"></script>
+  <link href="https://unpkg.com/maplibre-gl@5.0.0/dist/maplibre-gl.css" rel="stylesheet" />
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; }
+    #map { height: 70vh; }
+    .controls { padding: 20px; background: #f5f5f5; }
+    .file-drop { border: 2px dashed #ccc; padding: 20px; text-align: center; margin: 10px 0; cursor: pointer; transition: all 0.3s; }
+    .file-drop.dragover { border-color: #007cba; background: #e3f2fd; }
+    .data-info { display: flex; gap: 20px; margin: 10px 0; }
+    .info-box { padding: 10px; background: white; border-radius: 5px; flex: 1; }
+    button { padding: 8px 16px; margin: 5px; cursor: pointer; background: #007cba; color: white; border: none; border-radius: 3px; transition: all 0.3s; }
+    button:hover { background: #005a8a; transform: translateY(-1px); }
+    button:disabled { background: #ccc; cursor: not-allowed; transform: none; }
+    .sample-data { font-size: 12px; color: #666; margin: 10px 0; }
+    .drone-trail { opacity: 0.6; }
+    .status { margin: 10px 0; padding: 10px; background: #e8f4f8; border-radius: 5px; font-size: 14px; }
+    .object-list { max-height: 200px; overflow-y: auto; margin: 10px 0; }
+    .object-item { padding: 5px; margin: 2px 0; background: white; border-radius: 3px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; }
+    .delete-btn { background: #ff4444; color: white; border: none; padding: 2px 6px; border-radius: 2px; cursor: pointer; font-size: 10px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+   
+  <div class="controls">
+    <h3>📁 3Dデータ取り込み・書き出し</h3>
+    
+    <!-- ステータス表示 -->
+    <div id="status" class="status">システム準備完了</div>
+    
+    <!-- ファイル取り込みエリア -->
+    <div id="fileDropArea" class="file-drop">
+      📂 3Dデータファイルをドロップ または クリックして選択<br>
+      <small>対応形式: CSV, GeoJSON, JSON</small>
+    </div>
+    <input type="file" id="fileInput" multiple accept=".csv,.json,.geojson" style="display: none;">
+    
+    <!-- サンプルデータ -->
+    <div class="sample-data">
+      <strong>CSVサンプル形式:</strong> longitude,latitude,altitude,name,type<br>
+      <code>139.6917,35.6895,100,飛行001,flight</code>
+    </div>
+    
+    <!-- データ情報 -->
+    <div class="data-info">
+      <div class="info-box">
+        <strong>読み込み済み:</strong> <span id="loadedCount">0</span> オブジェクト
+      </div>
+      <div class="info-box">
+        <strong>表示中:</strong> <span id="visibleCount">0</span> オブジェクト
+      </div>
+      <div class="info-box">
+        <strong>高度範囲:</strong> <span id="altitudeRange">-</span>
+      </div>
+    </div>
+    
+    <!-- コントロールボタン -->
+    <div>
+      <button onclick="loadSampleData()">🎯 サンプルデータ読み込み</button>
+      <button onclick="startDroneSimulation()">🚁 飛行シミュレーション</button>
+      <button onclick="exportCSV()" id="exportCSVBtn">📊 CSV書き出し</button>
+      <button onclick="exportGeoJSON()" id="exportGeoJSONBtn">🗺️ GeoJSON書き出し</button>
+      <button onclick="clearAllData()">🗑️ データクリア</button>
+      <button onclick="toggle3D()">🔄 2D/3D切り替え</button>
+      <button onclick="enableDrawMode()">✏️ 描画モード</button>
+    </div>
+    
+    <!-- オブジェクト一覧 -->
+    <div>
+      <h4>📍 オブジェクト一覧</h4>
+      <div id="objectList" class="object-list"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { 
+      addDroneObjects, 
+      addDroneTrails, 
+      parseDroneCSV, 
+      parseGeoJSON, 
+      exportDroneDataToCSV, 
+      exportDroneDataToGeoJSON, 
+      downloadFile, 
+      generateSampleDroneData, 
+      clearDroneData 
+    } from './data-import-export-example.js';
+
+    // 地理院DEM変換関数
+    const gsidem2terrainrgb = (r, g, b) => {
+        let height = r * 655.36 + g * 2.56 + b * 0.01;
+        if (r === 128 && g === 0 && b === 0) {
+            height = 0;
+        } else if (r >= 128) {
+            height -= 167772.16;
+        }
+        height += 100000;
+        height *= 10;
+        const tB = (height / 256 - Math.floor(height / 256)) * 256;
+        const tG = (Math.floor(height / 256) / 256 - Math.floor(Math.floor(height / 256) / 256)) * 256;
+        const tR = (Math.floor(Math.floor(height / 256) / 256) / 256 - Math.floor(Math.floor(Math.floor(height / 256) / 256) / 256)) * 256;
+        return [tR, tG, tB];
+    };
+
+    // 地理院DEMプロトコル登録
+    maplibregl.addProtocol('gsidem', (params, callback) => {
+        const image = new Image();
+        image.crossOrigin = '';
+        image.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = image.width;
+            canvas.height = image.height;
+            const context = canvas.getContext('2d');
+            context.drawImage(image, 0, 0);
+            const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length / 4; i++) {
+                const tRGB = gsidem2terrainrgb(
+                    imageData.data[i * 4],
+                    imageData.data[i * 4 + 1],
+                    imageData.data[i * 4 + 2],
+                );
+                imageData.data[i * 4] = tRGB[0];
+                imageData.data[i * 4 + 1] = tRGB[1];
+                imageData.data[i * 4 + 2] = tRGB[2];
+            }
+            context.putImageData(imageData, 0, 0);
+            canvas.toBlob((blob) =>
+                blob.arrayBuffer().then((arr) => callback(null, arr, null, null)),
+            );
+        };
+        image.onerror = () => callback(new Error('DEM読み込みエラー'));
+        image.src = params.url.replace('gsidem://', '');
+        return { cancel: () => {} };
+    });
+
+    // グローバル変数
+    let map;
+    let loadedObjects = [];
+    let is3D = true;
+    let drawMode = false;
+    let droneSimulationInterval;
+    let sampleDataLoaded = false;
+
+    // ユーティリティ関数
+    function setStatus(message) {
+        document.getElementById('status').textContent = message;
+        console.log(`[Status] ${message}`);
+    }
+
+    function generateRandomPosition(center, radius) {
+        const angle = Math.random() * 2 * Math.PI;
+        const distance = Math.random() * radius;
+        return [
+            center[0] + (distance * Math.cos(angle)) / 111320,
+            center[1] + (distance * Math.sin(angle)) / 110540
+        ];
+    }
+
+    // マップ初期化
+    function initializeMap() {
+        setStatus('マップ初期化中...');
+        
+        map = new maplibregl.Map({
+            container: 'map',
+            maxPitch: 85,
+            center: [138.69, 35.3],
+            zoom: 12,
+            pitch: 70,
+            style: {
+                version: 8,
+                sources: {
+                    gsi: {
+                        type: 'raster',
+                        tiles: ['https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg'],
+                        attribution: '地理院タイル',
+                    },
+                    gsidem: {
+                        type: 'raster-dem',
+                        tiles: ['gsidem://https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png'],
+                        tileSize: 256,
+                        maxzoom: 14,
+                    }
+                },
+                layers: [
+                    {
+                        id: 'gsi',
+                        type: 'raster',
+                        source: 'gsi',
+                    }
+                ],
+                terrain: {
+                    source: 'gsidem',
+                    exaggeration: 1.2,
+                },
+            },
+        });
+
+        map.on('load', () => {
+            setupMapEvents();
+            setStatus('システム準備完了');
+        });
+
+        map.on('error', (e) => {
+            console.error('MapLibreエラー:', e);
+            setStatus('マップエラー発生');
+        });
+    }
+
+    // マップイベント設定
+    function setupMapEvents() {
+        // オブジェクトクリック
+        map.on('click', (e) => {
+            if (drawMode) {
+                addObjectAtLocation(e.lngLat);
+                return;
+            }
+            
+            // レイヤーのクリックをチェック
+            const features = map.queryRenderedFeatures(e.point, {
+                layers: ['drone-objects-3d-layer', 'drone-objects-points-layer']
+            });
+            
+            if (features.length > 0) {
+                showObjectInfo(e, features[0]);
+            }
+        });
+
+        // ホバーイベント
+        map.on('mouseenter', 'drone-objects-3d-layer', () => {
+            map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mouseleave', 'drone-objects-3d-layer', () => {
+            map.getCanvas().style.cursor = drawMode ? 'crosshair' : '';
+        });
+        map.on('mouseenter', 'drone-objects-points-layer', () => {
+            map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mouseleave', 'drone-objects-points-layer', () => {
+            map.getCanvas().style.cursor = drawMode ? 'crosshair' : '';
+        });
+    }
+
+    // クリック位置にオブジェクト追加
+    function addObjectAtLocation(lngLat) {
+        const newObject = {
+            id: `manual_${Date.now()}`,
+            name: `手動追加_${loadedObjects.length + 1}`,
+            longitude: lngLat.lng,
+            latitude: lngLat.lat,
+            altitude: 50 + Math.random() * 100,
+            type: 'manual',
+            source: 'manual',
+            properties: {}
+        };
+        
+        loadedObjects.push(newObject);
+        updateDisplay();
+        setStatus(`オブジェクトを追加: ${newObject.name}`);
+    }
+
+    // オブジェクト情報表示
+    function showObjectInfo(e, feature) {
+        const props = feature.properties;
+        new maplibregl.Popup()
+            .setLngLat(e.lngLat)
+            .setHTML(`
+                <div style="padding: 10px;">
+                    <h3 style="margin: 0 0 10px 0;">${props.name}</h3>
+                    <p><strong>タイプ:</strong> ${props.type}</p>
+                    <p><strong>高度:</strong> ${props.altitude}m</p>
+                    <p><strong>座標:</strong> ${e.lngLat.lng.toFixed(6)}, ${e.lngLat.lat.toFixed(6)}</p>
+                    <button onclick="removeObject('${props.id}')" style="background: #ff4444; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer;">削除</button>
+                </div>
+            `)
+            .addTo(map);
+    }
+
+    // オブジェクト削除
+    window.removeObject = function(objectId) {
+        loadedObjects = loadedObjects.filter(obj => obj.id !== objectId);
+        updateDisplay();
+        setStatus(`オブジェクトを削除: ${objectId}`);
+        
+        // ポップアップを閉じる
+        const popups = document.getElementsByClassName('maplibregl-popup');
+        for (let popup of popups) {
+            popup.remove();
+        }
+    }
+
+    // ファイル処理設定
+    function setupFileHandling() {
+        const fileInput = document.getElementById('fileInput');
+        const dropArea = document.getElementById('fileDropArea');
+
+        dropArea.addEventListener('click', () => fileInput.click());
+        dropArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropArea.classList.add('dragover');
+        });
+        dropArea.addEventListener('dragleave', () => {
+            dropArea.classList.remove('dragover');
+        });
+        dropArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropArea.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+    }
+
+    // ファイル処理
+    function handleFiles(files) {
+        setStatus('ファイル処理中...');
+        let processedFiles = 0;
+        
+        Array.from(files).forEach(file => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    if (file.name.endsWith('.csv')) {
+                        const newObjects = parseDroneCSV(e.target.result, file.name);
+                        addUniqueObjects(newObjects);
+                    } else if (file.name.endsWith('.json') || file.name.endsWith('.geojson')) {
+                        const newObjects = parseGeoJSON(e.target.result, file.name);
+                        addUniqueObjects(newObjects);
+                    }
+                    
+                    processedFiles++;
+                    if (processedFiles === files.length) {
+                        updateDisplay();
+                        setStatus(`${files.length}ファイルの処理完了`);
+                    }
+                } catch (error) {
+                    console.error('ファイル処理エラー:', error);
+                    setStatus(`ファイル処理エラー: ${error.message}`);
+                }
+            };
+            reader.readAsText(file);
+        });
+    }
+
+    // 重複チェックしてオブジェクト追加
+    function addUniqueObjects(newObjects) {
+        let addedCount = 0;
+        newObjects.forEach(newObject => {
+            const exists = loadedObjects.some(existing => 
+                Math.abs(existing.longitude - newObject.longitude) < 0.00001 &&
+                Math.abs(existing.latitude - newObject.latitude) < 0.00001
+            );
+            
+            if (!exists) {
+                loadedObjects.push(newObject);
+                addedCount++;
+            }
+        });
+        console.log(`追加されたオブジェクト: ${addedCount}個`);
+    }
+
+    // 表示更新
+    function updateDisplay() {
+        if (map && loadedObjects.length > 0) {
+            addDroneObjects(map, loadedObjects);
+        }
+
+        updateStats();
+        updateObjectList();
+        updateButtonStates();
+    }
+
+    // 統計更新
+    function updateStats() {
+        document.getElementById('loadedCount').textContent = loadedObjects.length;
+        document.getElementById('visibleCount').textContent = loadedObjects.length;
+        
+        if (loadedObjects.length > 0) {
+            const altitudes = loadedObjects.map(obj => obj.altitude);
+            const minAlt = Math.min(...altitudes);
+            const maxAlt = Math.max(...altitudes);
+            document.getElementById('altitudeRange').textContent = `${minAlt.toFixed(0)}m - ${maxAlt.toFixed(0)}m`;
+        } else {
+            document.getElementById('altitudeRange').textContent = '-';
+        }
+    }
+
+    // オブジェクトリスト更新
+    function updateObjectList() {
+        const objectList = document.getElementById('objectList');
+        objectList.innerHTML = '';
+        
+        loadedObjects.forEach(obj => {
+            const item = document.createElement('div');
+            item.className = 'object-item';
+            item.innerHTML = `
+                <div>
+                    <strong>${obj.name}</strong> (${obj.type})
+                    <br><small>${obj.longitude.toFixed(6)}, ${obj.latitude.toFixed(6)} - ${obj.altitude.toFixed(0)}m</small>
+                </div>
+                <button class="delete-btn" onclick="removeObject('${obj.id}')">削除</button>
+            `;
+            objectList.appendChild(item);
+        });
+    }
+
+    // ボタン状態更新
+    function updateButtonStates() {
+        const hasData = loadedObjects.length > 0;
+        document.getElementById('exportCSVBtn').disabled = !hasData;
+        document.getElementById('exportGeoJSONBtn').disabled = !hasData;
+    }
+
+    // サンプルデータ読み込み
+    window.loadSampleData = function() {
+        if (sampleDataLoaded) {
+            setStatus('サンプルデータは既に読み込み済みです');
+            return;
+        }
+        
+        const sampleData = generateSampleDroneData([138.69, 35.3]);
+        loadedObjects = loadedObjects.concat(sampleData);
+        sampleDataLoaded = true;
+        updateDisplay();
+        setStatus(`サンプルデータ読み込み完了: ${sampleData.length}オブジェクト`);
+    }
+
+    // ドローンシミュレーション
+    window.startDroneSimulation = function() {
+        if (droneSimulationInterval) {
+            clearInterval(droneSimulationInterval);
+            droneSimulationInterval = null;
+            setStatus('ドローンシミュレーション停止');
+            return;
+        }
+        
+        const drones = loadedObjects.filter(obj => obj.type === 'drone');
+        if (drones.length === 0) {
+            setStatus('ドローンデータがありません。先にサンプルデータを読み込んでください。');
+            return;
+        }
+        
+        setStatus('ドローンシミュレーション開始');
+        const trails = {};
+        
+        droneSimulationInterval = setInterval(() => {
+            drones.forEach(drone => {
+                // 軌跡保存
+                if (!trails[drone.id]) {
+                    trails[drone.id] = [];
+                }
+                trails[drone.id].push([drone.longitude, drone.latitude]);
+                
+                // ランダム移動
+                drone.longitude += (Math.random() - 0.5) * 0.002;
+                drone.latitude += (Math.random() - 0.5) * 0.002;
+                drone.altitude += (Math.random() - 0.5) * 20;
+                drone.altitude = Math.max(50, Math.min(300, drone.altitude));
+            });
+            
+            // 軌跡を最新20ポイントに制限
+            Object.keys(trails).forEach(droneId => {
+                if (trails[droneId].length > 20) {
+                    trails[droneId] = trails[droneId].slice(-20);
+                }
+            });
+            
+            // 軌跡更新
+            addDroneTrails(map, trails);
+            updateDisplay();
+        }, 1000);
+    }
+
+    // データ書き出し関数
+    window.exportCSV = function() {
+        if (loadedObjects.length === 0) {
+            setStatus('書き出すデータがありません');
+            return;
+        }
+        
+        try {
+            const csv = exportDroneDataToCSV(loadedObjects);
+            downloadFile(csv, 'maplibre_drone_data.csv', 'text/csv');
+            setStatus('CSV書き出し完了');
+        } catch (error) {
+            console.error('CSV書き出しエラー:', error);
+            setStatus('CSV書き出しエラー');
+        }
+    }
+
+    window.exportGeoJSON = function() {
+        if (loadedObjects.length === 0) {
+            setStatus('書き出すデータがありません');
+            return;
+        }
+        
+        try {
+            const geojson = exportDroneDataToGeoJSON(loadedObjects);
+            downloadFile(geojson, 'maplibre_drone_data.geojson', 'application/geo+json');
+            setStatus('GeoJSON書き出し完了');
+        } catch (error) {
+            console.error('GeoJSON書き出しエラー:', error);
+            setStatus('GeoJSON書き出しエラー');
+        }
+    }
+
+    // データクリア
+    window.clearAllData = function() {
+        if (loadedObjects.length === 0) {
+            setStatus('クリアするデータがありません');
+            return;
+        }
+        
+        if (confirm(`${loadedObjects.length}個のオブジェクトを全て削除しますか？`)) {
+            loadedObjects = [];
+            sampleDataLoaded = false;
+            
+            // シミュレーション停止
+            if (droneSimulationInterval) {
+                clearInterval(droneSimulationInterval);
+                droneSimulationInterval = null;
+            }
+            
+            // マップクリア
+            clearDroneData(map);
+            
+            updateDisplay();
+            setStatus('全データクリア完了');
+        }
+    }
+
+    // 2D/3D切り替え
+    window.toggle3D = function() {
+        is3D = !is3D;
+        
+        if (is3D) {
+            map.easeTo({ pitch: 70, duration: 1000 });
+            if (map.getLayer('drone-objects-3d-layer')) {
+                map.setLayoutProperty('drone-objects-3d-layer', 'visibility', 'visible');
+            }
+            if (map.getLayer('drone-objects-points-layer')) {
+                map.setLayoutProperty('drone-objects-points-layer', 'visibility', 'none');
+            }
+            setStatus('3D表示に切り替え');
+        } else {
+            map.easeTo({ pitch: 0, duration: 1000 });
+            if (map.getLayer('drone-objects-3d-layer')) {
+                map.setLayoutProperty('drone-objects-3d-layer', 'visibility', 'none');
+            }
+            if (map.getLayer('drone-objects-points-layer')) {
+                map.setLayoutProperty('drone-objects-points-layer', 'visibility', 'visible');
+            }
+            setStatus('2D表示に切り替え');
+        }
+    }
+
+    // 描画モード切り替え
+    window.enableDrawMode = function() {
+        drawMode = !drawMode;
+        
+        if (drawMode) {
+            map.getCanvas().style.cursor = 'crosshair';
+            setStatus('描画モード有効 - マップをクリックしてオブジェクトを追加');
+        } else {
+            map.getCanvas().style.cursor = '';
+            setStatus('描画モード無効');
+        }
+    }
+
+    // 初期化
+    document.addEventListener('DOMContentLoaded', () => {
+        try {
+            initializeMap();
+            setupFileHandling();
+            setStatus('システム初期化完了');
+            console.log('MapLibre ドローン用データ取り込みシステム初期化完了');
+        } catch (error) {
+            console.error('初期化エラー:', error);
+            setStatus('システム初期化エラー');
+        }
+    });
+
+    // エラーハンドリング
+    window.addEventListener('error', (e) => {
+        console.error('グローバルエラー:', e.error);
+        setStatus(`システムエラー: ${e.error.message}`);
+    });
+  </script>
+</body>
+</html>

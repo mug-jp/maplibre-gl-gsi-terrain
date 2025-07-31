@@ -1,0 +1,1341 @@
+import maplibregl from 'maplibre-gl';
+
+// ドローン関連オブジェクトの型定義
+export interface DroneObject {
+    id: string;
+    name: string;
+    longitude: number;
+    latitude: number;
+    altitude: number;
+    type: 'drone' | 'base' | 'sensor' | 'building' | 'weather' | 'manual' | 'flight' | 'unknown';
+    source: string;
+    properties?: Record<string, any>;
+}
+
+// 3Dポイントデータの型定義（既存との互換性維持）
+export interface Point3D {
+    x: number;
+    y: number;
+    z: number;
+    elevation: number;
+    type?: string;
+    description?: string;
+    properties?: Record<string, any>;
+}
+
+// メッシュデータの型定義
+export interface MeshVertex {
+    x: number;
+    y: number;
+    z: number;
+    mesh_id: number;
+    vertex_id: number;
+    elevation: number;
+    slope?: number;
+    aspect?: number;
+    damage_level?: number;
+    component_type?: string;
+}
+
+// ドローン飛行経路の型定義
+export interface DroneWaypoint {
+    x: number;
+    y: number;
+    z: number;
+    elevation: number;
+    waypoint_id: number;
+    timestamp?: string;
+    speed?: number;
+    action?: string; // 'takeoff', 'land', 'hover', 'move'
+    description?: string;
+    properties?: Record<string, any>;
+}
+
+// ドローン飛行ログの型定義
+export interface DroneFlightLog {
+    x: number;
+    y: number;
+    z: number;
+    elevation: number;
+    timestamp: string;
+    speed: number;
+    battery_level?: number;
+    signal_strength?: number;
+    gps_accuracy?: number;
+    action?: string;
+    description?: string;
+    properties?: Record<string, any>;
+}
+
+// CSVデータのパース処理
+export const parseCSVData = (csvContent: string): Point3D[] => {
+    const lines = csvContent.split('\n').filter(line => line.trim());
+    const headers = lines[0].split(',').map(h => h.trim());
+    const data: Point3D[] = [];
+    
+    for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',').map(v => v.trim());
+        if (values.length >= 3) {
+            const point: Point3D = {
+                x: parseFloat(values[0]),
+                y: parseFloat(values[1]),
+                z: parseFloat(values[2]),
+                elevation: parseFloat(values[3] || values[2]),
+                type: values[4] || 'point',
+                description: values[5] || '',
+                properties: {}
+            };
+            
+            // 追加のプロパティを設定
+            if (headers.length > 6) {
+                for (let j = 6; j < headers.length && j < values.length; j++) {
+                    point.properties![headers[j]] = values[j];
+                }
+            }
+            
+            data.push(point);
+        }
+    }
+    
+    return data;
+};
+
+// メッシュデータのパース処理
+export const parseMeshData = (csvContent: string): MeshVertex[] => {
+    const lines = csvContent.split('\n').filter(line => line.trim());
+    const headers = lines[0].split(',').map(h => h.trim());
+    const data: MeshVertex[] = [];
+    
+    for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',').map(v => v.trim());
+        if (values.length >= 6) {
+            const vertex: MeshVertex = {
+                x: parseFloat(values[0]),
+                y: parseFloat(values[1]),
+                z: parseFloat(values[2]),
+                mesh_id: parseInt(values[3]),
+                vertex_id: parseInt(values[4]),
+                elevation: parseFloat(values[5]),
+                slope: values[6] ? parseFloat(values[6]) : undefined,
+                aspect: values[7] ? parseFloat(values[7]) : undefined
+            };
+            
+            data.push(vertex);
+        }
+    }
+    
+    return data;
+};
+
+// ドローン飛行経路データのパース処理
+export const parseDroneWaypointData = (csvContent: string): DroneWaypoint[] => {
+    const lines = csvContent.split('\n').filter(line => line.trim());
+    const headers = lines[0].split(',').map(h => h.trim());
+    const data: DroneWaypoint[] = [];
+    
+    for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',').map(v => v.trim());
+        if (values.length >= 6) {
+            const waypoint: DroneWaypoint = {
+                x: parseFloat(values[0]),
+                y: parseFloat(values[1]),
+                z: parseFloat(values[2]),
+                elevation: parseFloat(values[3]),
+                waypoint_id: parseInt(values[4]),
+                timestamp: values[5] || undefined,
+                speed: values[6] ? parseFloat(values[6]) : undefined,
+                action: values[7] || undefined,
+                description: values[8] || undefined,
+                properties: {}
+            };
+            
+            // 追加のプロパティを設定
+            if (headers.length > 9) {
+                for (let j = 9; j < headers.length && j < values.length; j++) {
+                    waypoint.properties![headers[j]] = values[j];
+                }
+            }
+            
+            data.push(waypoint);
+        }
+    }
+    
+    return data;
+};
+
+// ドローン飛行ログデータのパース処理
+export const parseDroneFlightLogData = (csvContent: string): DroneFlightLog[] => {
+    const lines = csvContent.split('\n').filter(line => line.trim());
+    const headers = lines[0].split(',').map(h => h.trim());
+    const data: DroneFlightLog[] = [];
+    
+    for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',').map(v => v.trim());
+        if (values.length >= 6) {
+            const log: DroneFlightLog = {
+                x: parseFloat(values[0]),
+                y: parseFloat(values[1]),
+                z: parseFloat(values[2]),
+                elevation: parseFloat(values[3]),
+                timestamp: values[4],
+                speed: parseFloat(values[5]),
+                battery_level: values[6] ? parseFloat(values[6]) : undefined,
+                signal_strength: values[7] ? parseFloat(values[7]) : undefined,
+                gps_accuracy: values[8] ? parseFloat(values[8]) : undefined,
+                action: values[9] || undefined,
+                description: values[10] || undefined,
+                properties: {}
+            };
+            
+            // 追加のプロパティを設定
+            if (headers.length > 11) {
+                for (let j = 11; j < headers.length && j < values.length; j++) {
+                    log.properties![headers[j]] = values[j];
+                }
+            }
+            
+            data.push(log);
+        }
+    }
+    
+    return data;
+};
+
+// 建物点検データのパース処理
+export const parseBuildingInspectionData = (csvContent: string): Point3D[] => {
+    const lines = csvContent.split('\n').filter(line => line.trim());
+    const headers = lines[0].split(',').map(h => h.trim());
+    const data: Point3D[] = [];
+    
+    for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',').map(v => v.trim());
+        if (values.length >= 6) {
+            const point: Point3D = {
+                x: parseFloat(values[0]),
+                y: parseFloat(values[1]),
+                z: parseFloat(values[2]),
+                elevation: parseFloat(values[3]),
+                type: values[4],
+                description: values[5],
+                properties: {
+                    damage_level: values[6] ? parseInt(values[6]) : 0,
+                    component_type: values[7] || 'unknown',
+                    inspection_date: values[8] || undefined
+                }
+            };
+            
+            data.push(point);
+        }
+    }
+    
+    return data;
+};
+
+// 建物点検メッシュデータのパース処理
+export const parseBuildingInspectionMeshData = (csvContent: string): MeshVertex[] => {
+    const lines = csvContent.split('\n').filter(line => line.trim());
+    const headers = lines[0].split(',').map(h => h.trim());
+    const data: MeshVertex[] = [];
+    
+    for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',').map(v => v.trim());
+        if (values.length >= 6) {
+            const vertex: MeshVertex = {
+                x: parseFloat(values[0]),
+                y: parseFloat(values[1]),
+                z: parseFloat(values[2]),
+                mesh_id: parseInt(values[3]),
+                vertex_id: parseInt(values[4]),
+                elevation: parseFloat(values[5]),
+                slope: values[6] ? parseFloat(values[6]) : undefined,
+                aspect: values[7] ? parseFloat(values[7]) : undefined,
+                damage_level: values[8] ? parseInt(values[8]) : 0,
+                component_type: values[9] || 'unknown'
+            };
+            
+            data.push(vertex);
+        }
+    }
+    
+    return data;
+};
+
+// メッシュデータを三角形に変換
+export const convertMeshToTriangles = (meshData: MeshVertex[]): number[][][] => {
+    const triangles: number[][][] = [];
+    const meshGroups = new Map<number, MeshVertex[]>();
+    
+    // メッシュIDでグループ化
+    meshData.forEach(vertex => {
+        if (!meshGroups.has(vertex.mesh_id)) {
+            meshGroups.set(vertex.mesh_id, []);
+        }
+        meshGroups.get(vertex.mesh_id)!.push(vertex);
+    });
+    
+    // 各メッシュを三角形に変換
+    meshGroups.forEach((vertices, meshId) => {
+        // 5x5のグリッドを想定（25個の頂点）
+        if (vertices.length === 25) {
+            // 三角形の生成（4x4のグリッドから三角形を作成）
+            for (let row = 0; row < 4; row++) {
+                for (let col = 0; col < 4; col++) {
+                    const topLeft = vertices[row * 5 + col];
+                    const topRight = vertices[row * 5 + col + 1];
+                    const bottomLeft = vertices[(row + 1) * 5 + col];
+                    const bottomRight = vertices[(row + 1) * 5 + col + 1];
+                    
+                    // 2つの三角形を作成
+                    triangles.push([
+                        [topLeft.x, topLeft.y, topLeft.z],
+                        [topRight.x, topRight.y, topRight.z],
+                        [bottomLeft.x, bottomLeft.y, bottomLeft.z]
+                    ]);
+                    
+                    triangles.push([
+                        [topRight.x, topRight.y, topRight.z],
+                        [bottomRight.x, bottomRight.y, bottomRight.z],
+                        [bottomLeft.x, bottomLeft.y, bottomLeft.z]
+                    ]);
+                }
+            }
+        }
+    });
+    
+    return triangles;
+};
+
+// 3Dポイントデータの描画
+export const add3DPoints = (map: maplibregl.Map, points: Point3D[], sourceId: string = '3d-points') => {
+    console.log('3Dポイントデータの描画開始:', points.length, '個のポイント');
+    console.log('最初のポイント:', points[0]);
+    
+    const features = points.map(point => ({
+        type: 'Feature' as const,
+        geometry: {
+            type: 'Point' as const,
+            coordinates: [point.x, point.y] // MapLibreでは2D座標を使用
+        },
+        properties: {
+            elevation: point.elevation,
+            z: point.z, // 3D座標をプロパティとして保存
+            type: point.type,
+            description: point.description,
+            damage_level: point.properties?.damage_level || 0,
+            ...point.properties
+        }
+    }));
+
+    console.log('作成されたフィーチャー:', features.slice(0, 3)); // 最初の3つをログ出力
+
+    // 既存のソースがあれば削除
+    if (map.getSource(sourceId)) {
+        map.removeSource(sourceId);
+    }
+
+    // 既存のレイヤーがあれば削除
+    const layerId = `${sourceId}-layer`;
+    if (map.getLayer(layerId)) {
+        map.removeLayer(layerId);
+    }
+
+    try {
+        console.log('ソースを追加中:', sourceId);
+        map.addSource(sourceId, {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features
+            }
+        });
+
+        console.log('レイヤーを追加中:', layerId);
+        map.addLayer({
+            id: layerId,
+            type: 'circle',
+            source: sourceId,
+            paint: {
+                'circle-radius': [
+                    'interpolate',
+                    ['linear'],
+                    ['zoom'],
+                    10, 8,
+                    15, 15,
+                    20, 25
+                ],
+                'circle-color': [
+                    'match',
+                    ['get', 'damage_level'],
+                    0, '#00ff00', // 健全（緑）
+                    1, '#ffff00', // 軽微（黄）
+                    2, '#ffaa00', // 軽度（オレンジ）
+                    3, '#ff6600', // 中度（赤オレンジ）
+                    4, '#ff0000', // 重度（赤）
+                    5, '#990000', // 危険（濃赤）
+                    '#ff4444' // デフォルト（赤）
+                ],
+                'circle-opacity': 0.9,
+                'circle-stroke-width': 3,
+                'circle-stroke-color': '#ffffff'
+            }
+        });
+
+        console.log('3Dポイントレイヤーが正常に追加されました');
+        
+        // 地図の中心をデータの中心に移動
+        if (points.length > 0) {
+            const centerLng = points.reduce((sum, p) => sum + p.x, 0) / points.length;
+            const centerLat = points.reduce((sum, p) => sum + p.y, 0) / points.length;
+            console.log('地図中心移動:', [centerLng, centerLat]);
+            map.flyTo({
+                center: [centerLng, centerLat],
+                zoom: 16,
+                duration: 2000
+            });
+        }
+    } catch (error) {
+        console.error('3Dポイントレイヤーの追加に失敗:', error);
+        throw error;
+    }
+};
+
+// 3Dメッシュデータの描画
+export const add3DMesh = (map: maplibregl.Map, meshData: MeshVertex[], sourceId: string = '3d-mesh') => {
+    console.log('3Dメッシュデータの描画開始:', meshData.length, '個の頂点');
+    
+    const triangles = convertMeshToTriangles(meshData);
+    console.log('生成された三角形:', triangles.length, '個');
+    
+    const features = triangles.map((triangle, index) => ({
+        type: 'Feature' as const,
+        geometry: {
+            type: 'Polygon' as const,
+            coordinates: [triangle.map(coord => [coord[0], coord[1]])] // 2D座標に変換
+        },
+        properties: {
+            id: index,
+            elevation: triangle.reduce((sum, coord) => sum + coord[2], 0) / 3,
+            z: triangle.reduce((sum, coord) => sum + coord[2], 0) / 3
+        }
+    }));
+
+    console.log('作成されたメッシュフィーチャー:', features.slice(0, 2)); // 最初の2つをログ出力
+
+    // 既存のソースがあれば削除
+    if (map.getSource(sourceId)) {
+        map.removeSource(sourceId);
+    }
+
+    // 既存のレイヤーがあれば削除
+    const layerId = `${sourceId}-layer`;
+    if (map.getLayer(layerId)) {
+        map.removeLayer(layerId);
+    }
+
+    try {
+        map.addSource(sourceId, {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features
+            }
+        });
+
+        map.addLayer({
+            id: layerId,
+            type: 'fill',
+            source: sourceId,
+            paint: {
+                'fill-color': [
+                    'match',
+                    ['get', 'damage_level'],
+                    0, '#00ff00', // 健全（緑）
+                    1, '#ffff00', // 軽微（黄）
+                    2, '#ffaa00', // 軽度（オレンジ）
+                    3, '#ff6600', // 中度（赤オレンジ）
+                    4, '#ff0000', // 重度（赤）
+                    5, '#990000', // 危険（濃赤）
+                    '#ff4444' // デフォルト（赤）
+                ],
+                'fill-opacity': 0.7,
+                'fill-outline-color': '#ffffff'
+            }
+        });
+
+        console.log('3Dメッシュレイヤーが正常に追加されました');
+        
+        // 地図の中心をデータの中心に移動
+        if (meshData.length > 0) {
+            const centerLng = meshData.reduce((sum, p) => sum + p.x, 0) / meshData.length;
+            const centerLat = meshData.reduce((sum, p) => sum + p.y, 0) / meshData.length;
+            map.flyTo({
+                center: [centerLng, centerLat],
+                zoom: 16,
+                duration: 2000
+            });
+        }
+    } catch (error) {
+        console.error('3Dメッシュレイヤーの追加に失敗:', error);
+        throw error;
+    }
+};
+
+// ドローン飛行経路の描画
+export const addDroneWaypoints = (map: maplibregl.Map, waypoints: DroneWaypoint[], sourceId: string = 'drone-waypoints') => {
+    console.log('ドローン飛行経路の描画開始:', waypoints.length, '個のウェイポイント');
+    
+    const features = waypoints.map(waypoint => ({
+        type: 'Feature' as const,
+        geometry: {
+            type: 'Point' as const,
+            coordinates: [waypoint.x, waypoint.y]
+        },
+        properties: {
+            elevation: waypoint.elevation,
+            z: waypoint.z,
+            waypoint_id: waypoint.waypoint_id,
+            timestamp: waypoint.timestamp,
+            speed: waypoint.speed,
+            action: waypoint.action,
+            description: waypoint.description,
+            ...waypoint.properties
+        }
+    }));
+
+    // 飛行経路の線を描画
+    const lineFeatures = waypoints.length > 1 ? [{
+        type: 'Feature' as const,
+        geometry: {
+            type: 'LineString' as const,
+            coordinates: waypoints.map(wp => [wp.x, wp.y])
+        },
+        properties: {
+            type: 'flight-path',
+            waypoint_count: waypoints.length
+        }
+    }] : [];
+
+    console.log('作成されたウェイポイントフィーチャー:', features.slice(0, 3));
+
+    // 既存のソースがあれば削除
+    if (map.getSource(sourceId)) {
+        map.removeSource(sourceId);
+    }
+
+    // 既存のレイヤーがあれば削除
+    const waypointLayerId = `${sourceId}-waypoints-layer`;
+    const pathLayerId = `${sourceId}-path-layer`;
+    if (map.getLayer(waypointLayerId)) {
+        map.removeLayer(waypointLayerId);
+    }
+    if (map.getLayer(pathLayerId)) {
+        map.removeLayer(pathLayerId);
+    }
+
+    try {
+        // ウェイポイントのソースとレイヤー
+        map.addSource(sourceId, {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features
+            }
+        });
+
+        map.addLayer({
+            id: waypointLayerId,
+            type: 'circle',
+            source: sourceId,
+            paint: {
+                'circle-radius': [
+                    'interpolate',
+                    ['linear'],
+                    ['zoom'],
+                    10, 6,
+                    15, 12,
+                    20, 20
+                ],
+                'circle-color': [
+                    'match',
+                    ['get', 'action'],
+                    'takeoff', '#00ff00',
+                    'land', '#ff0000',
+                    'hover', '#ffff00',
+                    '#007cba'
+                ],
+                'circle-opacity': 0.9,
+                'circle-stroke-width': 2,
+                'circle-stroke-color': '#ffffff'
+            }
+        });
+
+        // 飛行経路の線を描画
+        if (lineFeatures.length > 0) {
+            map.addSource(`${sourceId}-path`, {
+                type: 'geojson',
+                data: {
+                    type: 'FeatureCollection',
+                    features: lineFeatures
+                }
+            });
+
+            map.addLayer({
+                id: pathLayerId,
+                type: 'line',
+                source: `${sourceId}-path`,
+                paint: {
+                    'line-color': '#ff6b35',
+                    'line-width': 3,
+                    'line-opacity': 0.8
+                }
+            });
+        }
+
+        console.log('ドローン飛行経路レイヤーが正常に追加されました');
+        
+        // 地図の中心をデータの中心に移動
+        if (waypoints.length > 0) {
+            const centerLng = waypoints.reduce((sum, p) => sum + p.x, 0) / waypoints.length;
+            const centerLat = waypoints.reduce((sum, p) => sum + p.y, 0) / waypoints.length;
+            map.flyTo({
+                center: [centerLng, centerLat],
+                zoom: 15,
+                duration: 2000
+            });
+        }
+    } catch (error) {
+        console.error('ドローン飛行経路レイヤーの追加に失敗:', error);
+        throw error;
+    }
+};
+
+// ドローン飛行ログの描画
+export const addDroneFlightLog = (map: maplibregl.Map, logs: DroneFlightLog[], sourceId: string = 'drone-flight-log') => {
+    console.log('ドローン飛行ログの描画開始:', logs.length, '個のログエントリ');
+    
+    const features = logs.map(log => ({
+        type: 'Feature' as const,
+        geometry: {
+            type: 'Point' as const,
+            coordinates: [log.x, log.y]
+        },
+        properties: {
+            elevation: log.elevation,
+            z: log.z,
+            timestamp: log.timestamp,
+            speed: log.speed,
+            battery_level: log.battery_level,
+            signal_strength: log.signal_strength,
+            gps_accuracy: log.gps_accuracy,
+            action: log.action,
+            description: log.description,
+            ...log.properties
+        }
+    }));
+
+    // 飛行軌跡の線を描画
+    const lineFeatures = logs.length > 1 ? [{
+        type: 'Feature' as const,
+        geometry: {
+            type: 'LineString' as const,
+            coordinates: logs.map(log => [log.x, log.y])
+        },
+        properties: {
+            type: 'flight-trajectory',
+            log_count: logs.length
+        }
+    }] : [];
+
+    console.log('作成された飛行ログフィーチャー:', features.slice(0, 3));
+
+    // 既存のソースがあれば削除
+    if (map.getSource(sourceId)) {
+        map.removeSource(sourceId);
+    }
+
+    // 既存のレイヤーがあれば削除
+    const logLayerId = `${sourceId}-points-layer`;
+    const trajectoryLayerId = `${sourceId}-trajectory-layer`;
+    if (map.getLayer(logLayerId)) {
+        map.removeLayer(logLayerId);
+    }
+    if (map.getLayer(trajectoryLayerId)) {
+        map.removeLayer(trajectoryLayerId);
+    }
+
+    try {
+        // ログポイントのソースとレイヤー
+        map.addSource(sourceId, {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features
+            }
+        });
+
+        map.addLayer({
+            id: logLayerId,
+            type: 'circle',
+            source: sourceId,
+            paint: {
+                'circle-radius': [
+                    'interpolate',
+                    ['linear'],
+                    ['zoom'],
+                    10, 3,
+                    15, 6,
+                    20, 10
+                ],
+                'circle-color': [
+                    'interpolate',
+                    ['linear'],
+                    ['get', 'speed'],
+                    0, '#00ff00',
+                    10, '#ffff00',
+                    20, '#ff0000'
+                ],
+                'circle-opacity': 0.7,
+                'circle-stroke-width': 1,
+                'circle-stroke-color': '#ffffff'
+            }
+        });
+
+        // 飛行軌跡の線を描画
+        if (lineFeatures.length > 0) {
+            map.addSource(`${sourceId}-trajectory`, {
+                type: 'geojson',
+                data: {
+                    type: 'FeatureCollection',
+                    features: lineFeatures
+                }
+            });
+
+            map.addLayer({
+                id: trajectoryLayerId,
+                type: 'line',
+                source: `${sourceId}-trajectory`,
+                paint: {
+                    'line-color': '#00ff00',
+                    'line-width': 2,
+                    'line-opacity': 0.6
+                }
+            });
+        }
+
+        console.log('ドローン飛行ログレイヤーが正常に追加されました');
+        
+        // 地図の中心をデータの中心に移動
+        if (logs.length > 0) {
+            const centerLng = logs.reduce((sum, p) => sum + p.x, 0) / logs.length;
+            const centerLat = logs.reduce((sum, p) => sum + p.y, 0) / logs.length;
+            map.flyTo({
+                center: [centerLng, centerLat],
+                zoom: 15,
+                duration: 2000
+            });
+        }
+    } catch (error) {
+        console.error('ドローン飛行ログレイヤーの追加に失敗:', error);
+        throw error;
+    }
+};
+
+// ファイルからデータをインポート
+export const importDataFromFile = async (
+    file: File, 
+    map: maplibregl.Map,
+    type: 'points' | 'mesh' | 'waypoints' | 'flight-log' | 'building-inspection' | 'building-inspection-mesh' = 'points'
+): Promise<void> => {
+    console.log('ファイルインポート開始:', file.name, 'タイプ:', type);
+    
+    const content = await file.text();
+    console.log('ファイル内容の最初の100文字:', content.substring(0, 100));
+    
+    switch (type) {
+        case 'points':
+            const pointData = parseCSVData(content);
+            console.log('パースされたポイントデータ:', pointData.length, '個');
+            console.log('最初の3つのポイント:', pointData.slice(0, 3));
+            add3DPoints(map, pointData);
+            break;
+            
+        case 'mesh':
+            const meshData = parseMeshData(content);
+            console.log('パースされたメッシュデータ:', meshData.length, '個');
+            console.log('最初の3つの頂点:', meshData.slice(0, 3));
+            add3DMesh(map, meshData);
+            break;
+            
+        case 'waypoints':
+            const waypointData = parseDroneWaypointData(content);
+            console.log('パースされたウェイポイントデータ:', waypointData.length, '個');
+            console.log('最初の3つのウェイポイント:', waypointData.slice(0, 3));
+            addDroneWaypoints(map, waypointData);
+            break;
+            
+        case 'flight-log':
+            const flightLogData = parseDroneFlightLogData(content);
+            console.log('パースされた飛行ログデータ:', flightLogData.length, '個');
+            console.log('最初の3つのログエントリ:', flightLogData.slice(0, 3));
+            addDroneFlightLog(map, flightLogData);
+            break;
+            
+        case 'building-inspection':
+            const buildingPointData = parseBuildingInspectionData(content);
+            console.log('パースされた建物点検データ:', buildingPointData.length, '個');
+            console.log('最初の3つの建物点検ポイント:', buildingPointData.slice(0, 3));
+            add3DPoints(map, buildingPointData);
+            break;
+            
+        case 'building-inspection-mesh':
+            const buildingMeshData = parseBuildingInspectionMeshData(content);
+            console.log('パースされた建物点検メッシュデータ:', buildingMeshData.length, '個');
+            console.log('最初の3つの建物点検頂点:', buildingMeshData.slice(0, 3));
+            add3DMesh(map, buildingMeshData);
+            break;
+            
+        default:
+            throw new Error(`未対応のデータタイプ: ${type}`);
+    }
+};
+
+// 現在表示されているデータを取得
+export const getCurrentDisplayData = (map: maplibregl.Map): { points: Point3D[], meshes: MeshVertex[] } => {
+    const points: Point3D[] = [];
+    const meshes: MeshVertex[] = [];
+    
+    // 3Dポイントデータを取得
+    const pointsSource = map.getSource('3d-points') as maplibregl.GeoJSONSource;
+    if (pointsSource) {
+        const pointsData = pointsSource.serialize();
+        const geoJsonData = typeof pointsData.data === 'string' ? JSON.parse(pointsData.data) : pointsData.data;
+        if (geoJsonData && geoJsonData.features) {
+            geoJsonData.features.forEach((feature: any) => {
+                if (feature.geometry.type === 'Point') {
+                    points.push({
+                        x: feature.geometry.coordinates[0],
+                        y: feature.geometry.coordinates[1],
+                        z: feature.properties.z || feature.properties.elevation,
+                        elevation: feature.properties.elevation,
+                        type: feature.properties.type,
+                        description: feature.properties.description,
+                        properties: feature.properties
+                    });
+                }
+            });
+        }
+    }
+    
+    // 3Dメッシュデータを取得
+    const meshSource = map.getSource('3d-mesh') as maplibregl.GeoJSONSource;
+    if (meshSource) {
+        const meshData = meshSource.serialize();
+        const geoJsonData = typeof meshData.data === 'string' ? JSON.parse(meshData.data) : meshData.data;
+        if (geoJsonData && geoJsonData.features) {
+            // メッシュデータは三角形の頂点として保存されているため、
+            // 元のメッシュ頂点データを再構築
+            const vertexMap = new Map<string, MeshVertex>();
+            
+            geoJsonData.features.forEach((feature: any, index: number) => {
+                if (feature.geometry.type === 'Polygon') {
+                    feature.geometry.coordinates[0].forEach((coord: number[], vertexIndex: number) => {
+                        const key = `${coord[0]}-${coord[1]}`;
+                        if (!vertexMap.has(key)) {
+                            vertexMap.set(key, {
+                                x: coord[0],
+                                y: coord[1],
+                                z: feature.properties.elevation,
+                                mesh_id: Math.floor(index / 2), // 2つの三角形で1つのメッシュ
+                                vertex_id: vertexIndex,
+                                elevation: feature.properties.elevation
+                            });
+                        }
+                    });
+                }
+            });
+            
+            meshes.push(...vertexMap.values());
+        }
+    }
+    
+    return { points, meshes };
+};
+
+// データのエクスポート
+export const exportDataToCSV = (map: maplibregl.Map, type: 'points' | 'mesh' | 'all' = 'all'): string => {
+    const { points, meshes } = getCurrentDisplayData(map);
+    
+    if (type === 'points' || type === 'all') {
+        if (points.length > 0) {
+            const headers = Object.keys(points[0]);
+            const csvLines = [headers.join(',')];
+            
+            points.forEach(item => {
+                const values = headers.map(header => {
+                    const value = (item as any)[header];
+                    return typeof value === 'string' && value.includes(',') ? `"${value}"` : value;
+                });
+                csvLines.push(values.join(','));
+            });
+            
+            return csvLines.join('\n');
+        }
+    }
+    
+    if (type === 'mesh' || type === 'all') {
+        if (meshes.length > 0) {
+            const headers = Object.keys(meshes[0]);
+            const csvLines = [headers.join(',')];
+            
+            meshes.forEach(item => {
+                const values = headers.map(header => {
+                    const value = (item as any)[header];
+                    return typeof value === 'string' && value.includes(',') ? `"${value}"` : value;
+                });
+                csvLines.push(values.join(','));
+            });
+            
+            return csvLines.join('\n');
+        }
+    }
+    
+    return '';
+};
+
+// データのクリア
+export const clearData = (map: maplibregl.Map, sourceIds: string[] = ['3d-points', '3d-mesh']) => {
+    sourceIds.forEach(sourceId => {
+        const layerId = `${sourceId}-layer`;
+        if (map.getLayer(layerId)) {
+            map.removeLayer(layerId);
+        }
+        if (map.getSource(sourceId)) {
+            map.removeSource(sourceId);
+        }
+    });
+};
+
+// ドローンデータのCSV解析
+export const parseDroneCSV = (csvContent: string, filename: string): DroneObject[] => {
+    const lines = csvContent.trim().split('\n');
+    if (lines.length < 2) return [];
+    
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    const data: DroneObject[] = [];
+    
+    for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+        const obj: any = {};
+        
+        headers.forEach((header, index) => {
+            obj[header] = values[index] || '';
+        });
+        
+        if (obj.longitude && obj.latitude) {
+            const droneObject: DroneObject = {
+                id: obj.id || `${filename}_${i}_${Date.now()}`,
+                name: obj.name || `オブジェクト${i}`,
+                longitude: parseFloat(obj.longitude),
+                latitude: parseFloat(obj.latitude),
+                altitude: parseFloat(obj.altitude || obj.height || obj.elevation) || 50,
+                type: (obj.type as DroneObject['type']) || 'unknown',
+                source: filename,
+                properties: {}
+            };
+            
+            // 追加プロパティを設定
+            Object.keys(obj).forEach(key => {
+                if (!['id', 'name', 'longitude', 'latitude', 'altitude', 'height', 'elevation', 'type'].includes(key)) {
+                    droneObject.properties![key] = obj[key];
+                }
+            });
+            
+            data.push(droneObject);
+        }
+    }
+    
+    return data;
+};
+
+// GeoJSONデータの解析
+export const parseGeoJSON = (jsonContent: string, filename: string): DroneObject[] => {
+    const data = JSON.parse(jsonContent);
+    const objects: DroneObject[] = [];
+    
+    if (data.type === 'FeatureCollection' && data.features) {
+        data.features.forEach((feature: any, index: number) => {
+            if (feature.geometry && feature.geometry.type === 'Point') {
+                const coords = feature.geometry.coordinates;
+                const props = feature.properties || {};
+                
+                const droneObject: DroneObject = {
+                    id: props.id || `${filename}_${index}_${Date.now()}`,
+                    name: props.name || `オブジェクト${index + 1}`,
+                    longitude: coords[0],
+                    latitude: coords[1],
+                    altitude: coords[2] || props.altitude || props.height || props.elevation || 50,
+                    type: props.type || 'unknown',
+                    source: filename,
+                    properties: { ...props }
+                };
+                
+                // 不要なプロパティを削除
+                delete droneObject.properties!.id;
+                delete droneObject.properties!.name;
+                delete droneObject.properties!.altitude;
+                delete droneObject.properties!.height;
+                delete droneObject.properties!.elevation;
+                delete droneObject.properties!.type;
+                
+                objects.push(droneObject);
+            }
+        });
+    } else if (Array.isArray(data)) {
+        // JSONの配列形式
+        data.forEach((item: any, index: number) => {
+            if (item.longitude && item.latitude) {
+                const droneObject: DroneObject = {
+                    id: item.id || `${filename}_${index}_${Date.now()}`,
+                    name: item.name || `オブジェクト${index + 1}`,
+                    longitude: parseFloat(item.longitude || item.lng),
+                    latitude: parseFloat(item.latitude || item.lat),
+                    altitude: parseFloat(item.altitude || item.height || item.elevation) || 50,
+                    type: item.type || 'unknown',
+                    source: filename,
+                    properties: {}
+                };
+                
+                // 追加プロパティを設定
+                Object.keys(item).forEach(key => {
+                    if (!['id', 'name', 'longitude', 'latitude', 'lng', 'lat', 'altitude', 'height', 'elevation', 'type'].includes(key)) {
+                        droneObject.properties![key] = item[key];
+                    }
+                });
+                
+                objects.push(droneObject);
+            }
+        });
+    }
+    
+    return objects;
+};
+
+// ドローンオブジェクト描画
+export const addDroneObjects = (map: maplibregl.Map, objects: DroneObject[], sourceId: string = 'drone-objects') => {
+    console.log('ドローンオブジェクト描画開始:', objects.length, '個のオブジェクト');
+    
+    const features = objects.map(obj => ({
+        type: 'Feature' as const,
+        geometry: {
+            type: 'Point' as const,
+            coordinates: [obj.longitude, obj.latitude]
+        },
+        properties: {
+            id: obj.id,
+            name: obj.name,
+            altitude: obj.altitude,
+            type: obj.type,
+            source: obj.source,
+            ...obj.properties
+        }
+    }));
+
+    // 既存のソースとレイヤーを削除
+    ['3d-layer', 'points-layer'].forEach(layerId => {
+        if (map.getLayer(`${sourceId}-${layerId}`)) {
+            map.removeLayer(`${sourceId}-${layerId}`);
+        }
+    });
+    
+    if (map.getSource(sourceId)) {
+        map.removeSource(sourceId);
+    }
+
+    try {
+        map.addSource(sourceId, {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features
+            }
+        });
+
+        // 3D押し出しレイヤー
+        map.addLayer({
+            id: `${sourceId}-3d-layer`,
+            type: 'fill-extrusion',
+            source: sourceId,
+            paint: {
+                'fill-extrusion-color': [
+                    'match',
+                    ['get', 'type'],
+                    'drone', '#ff4444',
+                    'building', '#44ff44',
+                    'sensor', '#4444ff',
+                    'base', '#ffaa00',
+                    'weather', '#ff44ff',
+                    'manual', '#888888',
+                    'flight', '#ff6b6b',
+                    '#cccccc'
+                ],
+                'fill-extrusion-height': ['get', 'altitude'],
+                'fill-extrusion-base': 0,
+                'fill-extrusion-opacity': 0.8
+            }
+        });
+
+        // ポイントマーカーレイヤー
+        map.addLayer({
+            id: `${sourceId}-points-layer`,
+            type: 'circle',
+            source: sourceId,
+            paint: {
+                'circle-radius': [
+                    'interpolate',
+                    ['linear'],
+                    ['zoom'],
+                    8, 6,
+                    16, 12
+                ],
+                'circle-color': [
+                    'match',
+                    ['get', 'type'],
+                    'drone', '#ff4444',
+                    'building', '#44ff44',
+                    'sensor', '#4444ff',
+                    'base', '#ffaa00',
+                    'weather', '#ff44ff',
+                    'manual', '#888888',
+                    'flight', '#ff6b6b',
+                    '#cccccc'
+                ],
+                'circle-stroke-width': 2,
+                'circle-stroke-color': '#ffffff',
+                'circle-opacity': 0.9
+            }
+        });
+
+        console.log('ドローンオブジェクトレイヤーが正常に追加されました');
+        
+        // 地図の中心をデータの中心に移動
+        if (objects.length > 0) {
+            const centerLng = objects.reduce((sum, obj) => sum + obj.longitude, 0) / objects.length;
+            const centerLat = objects.reduce((sum, obj) => sum + obj.latitude, 0) / objects.length;
+            map.flyTo({
+                center: [centerLng, centerLat],
+                zoom: 14,
+                duration: 2000
+            });
+        }
+    } catch (error) {
+        console.error('ドローンオブジェクトレイヤーの追加に失敗:', error);
+        throw error;
+    }
+};
+
+// ドローン軌跡の追加
+export const addDroneTrails = (map: maplibregl.Map, trails: { [droneId: string]: number[][] }) => {
+    const features = Object.entries(trails).map(([droneId, coords]) => ({
+        type: 'Feature' as const,
+        geometry: {
+            type: 'LineString' as const,
+            coordinates: coords
+        },
+        properties: { drone_id: droneId }
+    }));
+
+    const sourceId = 'drone-trails';
+    
+    if (map.getSource(sourceId)) {
+        (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData({
+            type: 'FeatureCollection',
+            features
+        });
+    } else {
+        map.addSource(sourceId, {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features
+            }
+        });
+
+        map.addLayer({
+            id: 'drone-trails-layer',
+            type: 'line',
+            source: sourceId,
+            layout: {
+                'line-join': 'round',
+                'line-cap': 'round'
+            },
+            paint: {
+                'line-color': '#ff6b6b',
+                'line-width': 2,
+                'line-opacity': 0.6
+            }
+        });
+    }
+};
+
+// データのCSV書き出し
+export const exportDroneDataToCSV = (objects: DroneObject[]): string => {
+    if (objects.length === 0) return '';
+    
+    const headers = ['longitude', 'latitude', 'altitude', 'name', 'type', 'source'];
+    const csvLines = [headers.join(',')];
+    
+    objects.forEach(obj => {
+        const values = [
+            obj.longitude,
+            obj.latitude,
+            obj.altitude,
+            `"${obj.name}"`,
+            obj.type,
+            `"${obj.source}"`
+        ];
+        csvLines.push(values.join(','));
+    });
+    
+    return csvLines.join('\n');
+};
+
+// データのGeoJSON書き出し
+export const exportDroneDataToGeoJSON = (objects: DroneObject[]): string => {
+    const geojson = {
+        type: 'FeatureCollection',
+        metadata: {
+            export_time: new Date().toISOString(),
+            total_objects: objects.length,
+            generator: 'MapLibre GSI Terrain System'
+        },
+        features: objects.map(obj => ({
+            type: 'Feature',
+            geometry: {
+                type: 'Point',
+                coordinates: [obj.longitude, obj.latitude, obj.altitude]
+            },
+            properties: {
+                name: obj.name,
+                type: obj.type,
+                altitude: obj.altitude,
+                source: obj.source,
+                id: obj.id,
+                ...obj.properties
+            }
+        }))
+    };
+    
+    return JSON.stringify(geojson, null, 2);
+};
+
+// ファイルダウンロード
+export const downloadFile = (content: string, filename: string, mimeType: string) => {
+    try {
+        const blob = new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        console.log(`ファイルダウンロード完了: ${filename}`);
+    } catch (error) {
+        console.error('ファイルダウンロードエラー:', error);
+        throw error;
+    }
+};
+
+// サンプルデータ生成
+export const generateSampleDroneData = (center: [number, number] = [139.7454, 35.6586]): DroneObject[] => {
+    const sampleData: DroneObject[] = [];
+    
+    // 東京タワー周辺の点検ドローンデータ生成（半径500m以内）
+    for (let i = 1; i <= 5; i++) {
+        const angle = (i - 1) * (2 * Math.PI / 5) + Math.random() * 0.5; // 5つのドローンを円形に配置
+        const distance = 200 + Math.random() * 300; // 200-500m範囲
+        const pos = [
+            center[0] + (distance * Math.cos(angle)) / 111320, // 経度変換
+            center[1] + (distance * Math.sin(angle)) / 110540  // 緯度変換
+        ];
+        
+        sampleData.push({
+            id: `tokyo_tower_drone_${i}_${Date.now()}`,
+            name: `点検用ドローン${String(i).padStart(2, '0')}`,
+            longitude: pos[0],
+            latitude: pos[1],
+            altitude: 250 + Math.random() * 100, // 東京タワー高度を考慮した250-350m
+            type: 'drone',
+            source: 'tokyo_tower_inspection',
+            properties: {
+                mission: 'tower_inspection',
+                status: 'active'
+            }
+        });
+    }
+    
+    // 東京タワー周辺の点検関連オブジェクト
+    const inspectionPoints = [
+        { type: 'base', name: '管制基地', lat_offset: -0.001, lng_offset: 0.001, altitude: 50 },
+        { type: 'sensor', name: '風向センサー', lat_offset: 0.0005, lng_offset: -0.0008, altitude: 100 },
+        { type: 'weather', name: '気象観測点', lat_offset: -0.0008, lng_offset: -0.001, altitude: 80 },
+        { type: 'manual', name: '点検ポイントA', lat_offset: 0.0003, lng_offset: 0.0005, altitude: 200 }
+    ] as const;
+    
+    inspectionPoints.forEach((point, index) => {
+        sampleData.push({
+            id: `tokyo_tower_${point.type}_${index}_${Date.now()}`,
+            name: point.name,
+            longitude: center[0] + point.lng_offset,
+            latitude: center[1] + point.lat_offset,
+            altitude: point.altitude + (Math.random() - 0.5) * 20,
+            type: point.type,
+            source: 'tokyo_tower_inspection',
+            properties: {
+                facility_type: 'inspection_equipment',
+                tower_related: true
+            }
+        });
+    });
+    
+    return sampleData;
+};
+
+// データクリア（ドローン対応版）
+export const clearDroneData = (map: maplibregl.Map, sourceIds: string[] = ['drone-objects', 'drone-trails']) => {
+    sourceIds.forEach(sourceId => {
+        // レイヤーの削除
+        ['3d-layer', 'points-layer', 'trails-layer'].forEach(layerSuffix => {
+            const layerId = `${sourceId}-${layerSuffix}`;
+            if (map.getLayer(layerId)) {
+                map.removeLayer(layerId);
+            }
+        });
+        
+        // 単一レイヤーの削除
+        if (map.getLayer(`${sourceId}-layer`)) {
+            map.removeLayer(`${sourceId}-layer`);
+        }
+        
+        // ソースの削除
+        if (map.getSource(sourceId)) {
+            map.removeSource(sourceId);
+        }
+    });
+};
+
+// パフォーマンス最適化のためのデータ分割処理
+export const processLargeDataset = async (
+    data: Point3D[] | MeshVertex[], 
+    chunkSize: number = 1000
+): Promise<(Point3D[] | MeshVertex[])[]> => {
+    const chunks: (Point3D[] | MeshVertex[])[] = [];
+    
+    for (let i = 0; i < data.length; i += chunkSize) {
+        chunks.push(data.slice(i, i + chunkSize));
+    }
+    
+    return chunks;
+}; 
