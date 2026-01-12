@@ -3,92 +3,68 @@ import type {
 	RasterDEMSourceSpecification,
 } from 'maplibre-gl';
 import maplibregl from 'maplibre-gl';
-import { workerCode } from './worker';
+import { encode } from 'fast-png';
 
-const loadImage = async (
-	src: string,
-	signal: AbortSignal,
-): Promise<ImageBitmap | null> => {
-	let response: Response;
-	try {
-		response = await fetch(src, { signal });
-	} catch (e) {
-		if (!signal.aborted) {
-			console.error(`Failed to fetch image: ${e}`);
-		}
-		return null;
-	}
-	if (!response.ok) {
-		return null;
-	}
-	return await createImageBitmap(await response.blob());
-};
-class WorkerProtocol {
-	private worker: Worker;
-	private pendingRequests: Map<
-		string,
-		{
-			resolve: (
-				value: { data: Uint8Array } | PromiseLike<{ data: Uint8Array }>,
-			) => void;
-			reject: (reason?: Error) => void;
-			controller: AbortController;
-		}
-	>;
+function loadPng(url: string): Promise<Uint8Array> {
+	return new Promise((resolve, reject) => {
+		const image = new Image();
+		image.crossOrigin = '';
+		image.onload = () => {
+			const canvas = new OffscreenCanvas(image.width, image.height);
+			canvas.width = image.width;
+			canvas.height = image.height;
 
-	constructor(worker: Worker) {
-		this.worker = worker;
-		this.pendingRequests = new Map();
-		this.worker.addEventListener('message', this.handleMessage);
-		this.worker.addEventListener('error', this.handleError);
-	}
+			const context = canvas.getContext('2d', {
+				willReadFrequently: true,
+			})!;
 
-	async request(
-		url: string,
-		controller: AbortController,
-	): Promise<{ data: Uint8Array }> {
-		const image = await loadImage(url, controller.signal);
+			// 地理院標高タイルを採用している一部のタイルは無効値が透過されていることがある
+			// 透過されている場合に無効値にフォールバックさせる=rgb(128,0,0)で塗りつぶす
+			context.fillStyle = 'rgb(128,0,0)';
+			context.fillRect(0, 0, canvas.width, canvas.height);
 
-		if (!image) {
-			return Promise.reject(new Error('Failed to load image'));
-		}
-
-		return new Promise((resolve, reject) => {
-			this.pendingRequests.set(url, { resolve, reject, controller });
-			this.worker.postMessage({ image, url });
-
-			controller.signal.onabort = () => {
-				this.pendingRequests.delete(url);
-				reject(new Error('Request aborted'));
-			};
-		});
-	}
-
-	private handleMessage = (e: MessageEvent) => {
-		const { url, buffer, error } = e.data;
-		if (error) {
-			console.error(`Error processing tile ${url}:`, error);
-		} else {
-			const request = this.pendingRequests.get(url);
-			if (request) {
-				request.resolve({ data: new Uint8Array(buffer) });
-				this.pendingRequests.delete(url);
+			context.drawImage(image, 0, 0);
+			const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+			for (let i = 0; i < imageData.data.length / 4; i++) {
+				const tRGB = gsidem2terrarium(
+					imageData.data[i * 4],
+					imageData.data[i * 4 + 1],
+					imageData.data[i * 4 + 2],
+				);
+				imageData.data[i * 4] = tRGB[0];
+				imageData.data[i * 4 + 1] = tRGB[1];
+				imageData.data[i * 4 + 2] = tRGB[2];
 			}
-		}
-	};
-
-	private handleError = (e: ErrorEvent) => {
-		console.error('Worker error:', e);
-		this.pendingRequests.forEach((request) => {
-			request.reject(new Error('Worker error occurred'));
-		});
-		this.pendingRequests.clear();
-	};
+			const png = encode(imageData);
+			resolve(png);
+		};
+		image.onerror = (e) => {
+			reject(e);
+		};
+		image.src = url;
+	});
 }
 
-const blob = new Blob([workerCode], { type: 'application/javascript' });
-const worker = new Worker(URL.createObjectURL(blob));
-const workerProtocol = new WorkerProtocol(worker);
+export function gsidem2terrarium(
+	r: number,
+	g: number,
+	b: number,
+): [number, number, number] {
+	// GSI DEMからメートル単位の標高値を取得
+	let rgb = (r << 16) + (g << 8) + b;
+	let h = 0;
+
+	if (rgb < 0x800000) h = rgb * 0.01;
+	else if (rgb > 0x800000) h = (rgb - Math.pow(2, 24)) * 0.01;
+
+	// Terrarium形式にエンコード
+	// 標高 = (R * 256 + G + B / 256) - 32768
+	const value = h + 32768;
+	const tR = Math.floor(value / 256);
+	const tG = Math.floor(value) % 256;
+	const tB = Math.floor((value - Math.floor(value)) * 256);
+	return [tR, tG, tB];
+}
 
 type Options = {
 	attribution?: string;
@@ -139,14 +115,12 @@ export const useGsiTerrainSource = (
 
 	return {
 		type: 'raster-dem',
+		encoding: 'terrarium',
 		tiles: [`gsidem://${tileUrl}`],
 		tileSize: 256,
-		encoding: 'terrarium',
 		minzoom: options.minzoom ?? 1,
 		maxzoom: options.maxzoom ?? 14,
-		attribution:
-			options.attribution ??
-			'<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>',
+		attribution: options.attribution ?? '',
 	};
 };
 
@@ -170,8 +144,12 @@ export const useGsiTerrainSource = (
 export const getGsiDemProtocolAction = (
 	customProtocol: string,
 ): AddProtocolAction => {
-	return (params, abortController) => {
-		const urlWithoutProtocol = params.url.replace(customProtocol + '://', '');
-		return workerProtocol.request(urlWithoutProtocol, abortController);
+	return async (params, abortController) => {
+		const imageUrl = params.url.replace(`${customProtocol}://`, '');
+		const png = await loadPng(imageUrl).catch((e) => {
+			abortController.abort();
+			throw e.message;
+		});
+		return { data: png };
 	};
 };
