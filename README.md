@@ -12,7 +12,7 @@
 
 ```html
 <script type="module">
-    import { useGsiTerrainSource } from 'https://www.unpkg.com/maplibre-gl-gsi-terrain@2.1.0/dist/terrain.js';
+    import { useGsiTerrainSource } from 'https://www.unpkg.com/maplibre-gl-gsi-terrain@2.3.0/dist/terrain.js';
 </script>
 ```
 
