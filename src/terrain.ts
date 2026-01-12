@@ -3,45 +3,94 @@ import type {
 	RasterDEMSourceSpecification,
 } from 'maplibre-gl';
 import maplibregl from 'maplibre-gl';
-import { encode } from 'fast-png';
 
-function loadPng(url: string): Promise<Uint8Array> {
-	return new Promise((resolve, reject) => {
-		const image = new Image();
-		image.crossOrigin = '';
-		image.onload = () => {
-			const canvas = new OffscreenCanvas(image.width, image.height);
-			canvas.width = image.width;
-			canvas.height = image.height;
+// Workerコード（インライン）
+const workerCode = `
+function gsidem2terrarium(r, g, b) {
+	let rgb = (r << 16) + (g << 8) + b;
+	let h = 0;
+	if (rgb < 0x800000) h = rgb * 0.01;
+	else if (rgb > 0x800000) h = (rgb - Math.pow(2, 24)) * 0.01;
+	const value = h + 32768;
+	const tR = Math.floor(value / 256);
+	const tG = Math.floor(value) % 256;
+	const tB = Math.floor((value - Math.floor(value)) * 256);
+	return [tR, tG, tB];
+}
 
-			const context = canvas.getContext('2d', {
-				willReadFrequently: true,
-			})!;
+self.onmessage = async (e) => {
+	const { imageBitmap, id } = e.data;
+	const canvas = new OffscreenCanvas(imageBitmap.width, imageBitmap.height);
+	const context = canvas.getContext('2d', { willReadFrequently: true });
 
-			// 地理院標高タイルを採用している一部のタイルは無効値が透過されていることがある
-			// 透過されている場合に無効値にフォールバックさせる=rgb(128,0,0)で塗りつぶす
-			context.fillStyle = 'rgb(128,0,0)';
-			context.fillRect(0, 0, canvas.width, canvas.height);
+	// 無効値のフォールバック用に背景を塗りつぶす
+	context.fillStyle = 'rgb(128,0,0)';
+	context.fillRect(0, 0, canvas.width, canvas.height);
 
-			context.drawImage(image, 0, 0);
-			const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-			for (let i = 0; i < imageData.data.length / 4; i++) {
-				const tRGB = gsidem2terrarium(
-					imageData.data[i * 4],
-					imageData.data[i * 4 + 1],
-					imageData.data[i * 4 + 2],
-				);
-				imageData.data[i * 4] = tRGB[0];
-				imageData.data[i * 4 + 1] = tRGB[1];
-				imageData.data[i * 4 + 2] = tRGB[2];
+	context.drawImage(imageBitmap, 0, 0);
+	imageBitmap.close();
+
+	const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+	for (let i = 0; i < imageData.data.length / 4; i++) {
+		const tRGB = gsidem2terrarium(
+			imageData.data[i * 4],
+			imageData.data[i * 4 + 1],
+			imageData.data[i * 4 + 2],
+		);
+		imageData.data[i * 4] = tRGB[0];
+		imageData.data[i * 4 + 1] = tRGB[1];
+		imageData.data[i * 4 + 2] = tRGB[2];
+	}
+	context.putImageData(imageData, 0, 0);
+
+	const blob = await canvas.convertToBlob({ type: 'image/png' });
+	const arrayBuffer = await blob.arrayBuffer();
+	const png = new Uint8Array(arrayBuffer);
+	self.postMessage({ png, id }, [png.buffer]);
+};
+`;
+
+let worker: Worker | null = null;
+let requestId = 0;
+const pendingRequests = new Map<
+	number,
+	{ resolve: (data: Uint8Array) => void; reject: (error: Error) => void }
+>();
+
+function getWorker(): Worker {
+	if (!worker) {
+		const blob = new Blob([workerCode], { type: 'application/javascript' });
+		worker = new Worker(URL.createObjectURL(blob));
+		worker.onmessage = (e) => {
+			const { png, id } = e.data;
+			const pending = pendingRequests.get(id);
+			if (pending) {
+				pending.resolve(png);
+				pendingRequests.delete(id);
 			}
-			const png = encode(imageData);
-			resolve(png);
 		};
-		image.onerror = (e) => {
-			reject(e);
+		worker.onerror = (e) => {
+			pendingRequests.forEach((pending) =>
+				pending.reject(new Error(e.message)),
+			);
+			pendingRequests.clear();
 		};
-		image.src = url;
+	}
+	return worker;
+}
+
+async function loadPng(url: string): Promise<Uint8Array> {
+	const response = await fetch(url);
+	if (!response.ok) {
+		throw new Error(`Failed to fetch: ${response.status}`);
+	}
+	const blob = await response.blob();
+	const imageBitmap = await createImageBitmap(blob);
+
+	return new Promise((resolve, reject) => {
+		const id = requestId++;
+		pendingRequests.set(id, { resolve, reject });
+		getWorker().postMessage({ imageBitmap, id }, [imageBitmap]);
 	});
 }
 
@@ -89,7 +138,6 @@ type Options = {
  *    },
  *    terrain: {
  *      source: 'terrain',
- *      exaggeration: 1.2,
  *    },
  *  },
  * });
@@ -133,6 +181,7 @@ export const useGsiTerrainSource = (
  * addProtocol('gsidem', protocolAction);
  * const rasterDemSource = {
  *   type: 'raster-dem',
+ *   encoding: 'terrarium',
  *   tiles: ['gsidem://https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png'],
  *   tileSize: 256,
  *   minzoom: 1,
