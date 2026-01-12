@@ -3,92 +3,117 @@ import type {
 	RasterDEMSourceSpecification,
 } from 'maplibre-gl';
 import maplibregl from 'maplibre-gl';
-import { workerCode } from './worker';
 
-const loadImage = async (
-	src: string,
-	signal: AbortSignal,
-): Promise<ImageBitmap | null> => {
-	let response: Response;
-	try {
-		response = await fetch(src, { signal });
-	} catch (e) {
-		if (!signal.aborted) {
-			console.error(`Failed to fetch image: ${e}`);
-		}
-		return null;
-	}
-	if (!response.ok) {
-		return null;
-	}
-	return await createImageBitmap(await response.blob());
-};
-class WorkerProtocol {
-	private worker: Worker;
-	private pendingRequests: Map<
-		string,
-		{
-			resolve: (
-				value: { data: Uint8Array } | PromiseLike<{ data: Uint8Array }>,
-			) => void;
-			reject: (reason?: Error) => void;
-			controller: AbortController;
-		}
-	>;
-
-	constructor(worker: Worker) {
-		this.worker = worker;
-		this.pendingRequests = new Map();
-		this.worker.addEventListener('message', this.handleMessage);
-		this.worker.addEventListener('error', this.handleError);
-	}
-
-	async request(
-		url: string,
-		controller: AbortController,
-	): Promise<{ data: Uint8Array }> {
-		const image = await loadImage(url, controller.signal);
-
-		if (!image) {
-			return Promise.reject(new Error('Failed to load image'));
-		}
-
-		return new Promise((resolve, reject) => {
-			this.pendingRequests.set(url, { resolve, reject, controller });
-			this.worker.postMessage({ image, url });
-
-			controller.signal.onabort = () => {
-				this.pendingRequests.delete(url);
-				reject(new Error('Request aborted'));
-			};
-		});
-	}
-
-	private handleMessage = (e: MessageEvent) => {
-		const { url, buffer, error } = e.data;
-		if (error) {
-			console.error(`Error processing tile ${url}:`, error);
-		} else {
-			const request = this.pendingRequests.get(url);
-			if (request) {
-				request.resolve({ data: new Uint8Array(buffer) });
-				this.pendingRequests.delete(url);
-			}
-		}
-	};
-
-	private handleError = (e: ErrorEvent) => {
-		console.error('Worker error:', e);
-		this.pendingRequests.forEach((request) => {
-			request.reject(new Error('Worker error occurred'));
-		});
-		this.pendingRequests.clear();
-	};
+// Workerコード（インライン）
+const workerCode = `
+function gsidem2terrarium(r, g, b) {
+	let rgb = (r << 16) + (g << 8) + b;
+	let h = 0;
+	if (rgb < 0x800000) h = rgb * 0.01;
+	else if (rgb > 0x800000) h = (rgb - Math.pow(2, 24)) * 0.01;
+	const value = h + 32768;
+	const tR = Math.floor(value / 256);
+	const tG = Math.floor(value) % 256;
+	const tB = Math.floor((value - Math.floor(value)) * 256);
+	return [tR, tG, tB];
 }
 
-const blob = new Blob([workerCode], { type: 'application/javascript' });
-const worker = new Worker(URL.createObjectURL(blob));
-const workerProtocol = new WorkerProtocol(worker);
+self.onmessage = async (e) => {
+	const { imageBitmap, id } = e.data;
+	const canvas = new OffscreenCanvas(imageBitmap.width, imageBitmap.height);
+	const context = canvas.getContext('2d', { willReadFrequently: true });
+
+	// 無効値のフォールバック用に背景を塗りつぶす
+	context.fillStyle = 'rgb(128,0,0)';
+	context.fillRect(0, 0, canvas.width, canvas.height);
+
+	context.drawImage(imageBitmap, 0, 0);
+	imageBitmap.close();
+
+	const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+	for (let i = 0; i < imageData.data.length / 4; i++) {
+		const tRGB = gsidem2terrarium(
+			imageData.data[i * 4],
+			imageData.data[i * 4 + 1],
+			imageData.data[i * 4 + 2],
+		);
+		imageData.data[i * 4] = tRGB[0];
+		imageData.data[i * 4 + 1] = tRGB[1];
+		imageData.data[i * 4 + 2] = tRGB[2];
+	}
+	context.putImageData(imageData, 0, 0);
+
+	const blob = await canvas.convertToBlob({ type: 'image/png' });
+	const arrayBuffer = await blob.arrayBuffer();
+	const png = new Uint8Array(arrayBuffer);
+	self.postMessage({ png, id }, [png.buffer]);
+};
+`;
+
+let worker: Worker | null = null;
+let requestId = 0;
+const pendingRequests = new Map<
+	number,
+	{ resolve: (data: Uint8Array) => void; reject: (error: Error) => void }
+>();
+
+function getWorker(): Worker {
+	if (!worker) {
+		const blob = new Blob([workerCode], { type: 'application/javascript' });
+		worker = new Worker(URL.createObjectURL(blob));
+		worker.onmessage = (e) => {
+			const { png, id } = e.data;
+			const pending = pendingRequests.get(id);
+			if (pending) {
+				pending.resolve(png);
+				pendingRequests.delete(id);
+			}
+		};
+		worker.onerror = (e) => {
+			pendingRequests.forEach((pending) =>
+				pending.reject(new Error(e.message)),
+			);
+			pendingRequests.clear();
+		};
+	}
+	return worker;
+}
+
+async function loadPng(url: string): Promise<Uint8Array> {
+	const response = await fetch(url);
+	if (!response.ok) {
+		throw new Error(`Failed to fetch: ${response.status}`);
+	}
+	const blob = await response.blob();
+	const imageBitmap = await createImageBitmap(blob);
+
+	return new Promise((resolve, reject) => {
+		const id = requestId++;
+		pendingRequests.set(id, { resolve, reject });
+		getWorker().postMessage({ imageBitmap, id }, [imageBitmap]);
+	});
+}
+
+export function gsidem2terrarium(
+	r: number,
+	g: number,
+	b: number,
+): [number, number, number] {
+	// GSI DEMからメートル単位の標高値を取得
+	let rgb = (r << 16) + (g << 8) + b;
+	let h = 0;
+
+	if (rgb < 0x800000) h = rgb * 0.01;
+	else if (rgb > 0x800000) h = (rgb - Math.pow(2, 24)) * 0.01;
+
+	// Terrarium形式にエンコード
+	// 標高 = (R * 256 + G + B / 256) - 32768
+	const value = h + 32768;
+	const tR = Math.floor(value / 256);
+	const tG = Math.floor(value) % 256;
+	const tB = Math.floor((value - Math.floor(value)) * 256);
+	return [tR, tG, tB];
+}
 
 type Options = {
 	attribution?: string;
@@ -113,7 +138,6 @@ type Options = {
  *    },
  *    terrain: {
  *      source: 'terrain',
- *      exaggeration: 1.2,
  *    },
  *  },
  * });
@@ -139,14 +163,12 @@ export const useGsiTerrainSource = (
 
 	return {
 		type: 'raster-dem',
+		encoding: 'terrarium',
 		tiles: [`gsidem://${tileUrl}`],
 		tileSize: 256,
-		encoding: 'terrarium',
 		minzoom: options.minzoom ?? 1,
 		maxzoom: options.maxzoom ?? 14,
-		attribution:
-			options.attribution ??
-			'<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>',
+		attribution: options.attribution ?? '',
 	};
 };
 
@@ -159,6 +181,7 @@ export const useGsiTerrainSource = (
  * addProtocol('gsidem', protocolAction);
  * const rasterDemSource = {
  *   type: 'raster-dem',
+ *   encoding: 'terrarium',
  *   tiles: ['gsidem://https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png'],
  *   tileSize: 256,
  *   minzoom: 1,
@@ -170,8 +193,12 @@ export const useGsiTerrainSource = (
 export const getGsiDemProtocolAction = (
 	customProtocol: string,
 ): AddProtocolAction => {
-	return (params, abortController) => {
-		const urlWithoutProtocol = params.url.replace(customProtocol + '://', '');
-		return workerProtocol.request(urlWithoutProtocol, abortController);
+	return async (params, abortController) => {
+		const imageUrl = params.url.replace(`${customProtocol}://`, '');
+		const png = await loadPng(imageUrl).catch((e) => {
+			abortController.abort();
+			throw e.message;
+		});
+		return { data: png };
 	};
 };

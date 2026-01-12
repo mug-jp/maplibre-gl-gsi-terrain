@@ -1,28 +1,27 @@
-import maplibregl, { RasterDEMSourceSpecification } from 'maplibre-gl';
+import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { getGsiDemProtocolAction } from '../src/terrain.ts';
+import {
+	getGsiDemProtocolAction,
+	useGsiTerrainSource,
+} from '../src/terrain.ts';
 
 const protocolAction = getGsiDemProtocolAction('gsidem');
 maplibregl.addProtocol('gsidem', protocolAction);
-const gsiTerrainSource: RasterDEMSourceSpecification = {
-	type: 'raster-dem',
-	tiles: ['gsidem://https://tiles.gsj.jp/tiles/elev/mixed/{z}/{y}/{x}.png'],
-	tileSize: 256,
-	encoding: 'terrarium',
-	minzoom: 1,
+const gsiTerrainSource = useGsiTerrainSource(maplibregl.addProtocol, {
+	tileUrl: 'https://tiles.gsj.jp/tiles/elev/mixed/{z}/{y}/{x}.png',
 	maxzoom: 17,
 	attribution:
-		'<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>',
-};
+		'<a href="https://gbank.gsj.jp/seamless/elev/">産総研シームレス標高タイル</a>',
+});
 
 new maplibregl.Map({
 	container: 'app',
 	zoom: 13,
 	center: [138.7, 35.3],
 	minZoom: 5,
-	maxZoom: 18,
+	maxZoom: 22,
 	pitch: 70,
-	maxPitch: 100,
+	maxPitch: 85,
 	style: {
 		version: 8,
 		projection: {
@@ -50,7 +49,6 @@ new maplibregl.Map({
 		],
 		terrain: {
 			source: 'terrain',
-			exaggeration: 1.2,
 		},
 	},
 });
