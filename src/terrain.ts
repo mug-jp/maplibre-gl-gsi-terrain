@@ -3,52 +3,7 @@ import type {
 	RasterDEMSourceSpecification,
 } from 'maplibre-gl';
 import maplibregl from 'maplibre-gl';
-
-// Workerコード（インライン）
-const workerCode = `
-function gsidem2terrarium(r, g, b) {
-	let rgb = (r << 16) + (g << 8) + b;
-	let h = 0;
-	if (rgb < 0x800000) h = rgb * 0.01;
-	else if (rgb > 0x800000) h = (rgb - Math.pow(2, 24)) * 0.01;
-	const value = h + 32768;
-	const tR = Math.floor(value / 256);
-	const tG = Math.floor(value) % 256;
-	const tB = Math.floor((value - Math.floor(value)) * 256);
-	return [tR, tG, tB];
-}
-
-self.onmessage = async (e) => {
-	const { imageBitmap, id } = e.data;
-	const canvas = new OffscreenCanvas(imageBitmap.width, imageBitmap.height);
-	const context = canvas.getContext('2d', { willReadFrequently: true });
-
-	// 無効値のフォールバック用に背景を塗りつぶす
-	context.fillStyle = 'rgb(128,0,0)';
-	context.fillRect(0, 0, canvas.width, canvas.height);
-
-	context.drawImage(imageBitmap, 0, 0);
-	imageBitmap.close();
-
-	const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-	for (let i = 0; i < imageData.data.length / 4; i++) {
-		const tRGB = gsidem2terrarium(
-			imageData.data[i * 4],
-			imageData.data[i * 4 + 1],
-			imageData.data[i * 4 + 2],
-		);
-		imageData.data[i * 4] = tRGB[0];
-		imageData.data[i * 4 + 1] = tRGB[1];
-		imageData.data[i * 4 + 2] = tRGB[2];
-	}
-	context.putImageData(imageData, 0, 0);
-
-	const blob = await canvas.convertToBlob({ type: 'image/png' });
-	const arrayBuffer = await blob.arrayBuffer();
-	const png = new Uint8Array(arrayBuffer);
-	self.postMessage({ png, id }, [png.buffer]);
-};
-`;
+import TerrainWorker from './terrain.worker.ts?worker';
 
 let worker: Worker | null = null;
 let requestId = 0;
@@ -59,8 +14,7 @@ const pendingRequests = new Map<
 
 function getWorker(): Worker {
 	if (!worker) {
-		const blob = new Blob([workerCode], { type: 'application/javascript' });
-		worker = new Worker(URL.createObjectURL(blob));
+		worker = new TerrainWorker();
 		worker.onmessage = (e) => {
 			const { png, id } = e.data;
 			const pending = pendingRequests.get(id);
@@ -84,35 +38,14 @@ async function loadPng(url: string): Promise<Uint8Array> {
 	if (!response.ok) {
 		throw new Error(`Failed to fetch: ${response.status}`);
 	}
-	const blob = await response.blob();
-	const imageBitmap = await createImageBitmap(blob);
+	const arrayBuffer = await response.arrayBuffer();
+	const pngData = new Uint8Array(arrayBuffer);
 
 	return new Promise((resolve, reject) => {
 		const id = requestId++;
 		pendingRequests.set(id, { resolve, reject });
-		getWorker().postMessage({ imageBitmap, id }, [imageBitmap]);
+		getWorker().postMessage({ pngData, id }, [pngData.buffer]);
 	});
-}
-
-export function gsidem2terrarium(
-	r: number,
-	g: number,
-	b: number,
-): [number, number, number] {
-	// GSI DEMからメートル単位の標高値を取得
-	let rgb = (r << 16) + (g << 8) + b;
-	let h = 0;
-
-	if (rgb < 0x800000) h = rgb * 0.01;
-	else if (rgb > 0x800000) h = (rgb - Math.pow(2, 24)) * 0.01;
-
-	// Terrarium形式にエンコード
-	// 標高 = (R * 256 + G + B / 256) - 32768
-	const value = h + 32768;
-	const tR = Math.floor(value / 256);
-	const tG = Math.floor(value) % 256;
-	const tB = Math.floor((value - Math.floor(value)) * 256);
-	return [tR, tG, tB];
 }
 
 type Options = {
