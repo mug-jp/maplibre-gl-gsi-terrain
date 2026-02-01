@@ -1,6 +1,10 @@
 {
 	"name": "maplibre-gl-gsi-terrain",
 	"version": "2.3.1",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/mug-jp/maplibre-gl-gsi-terrain"
+	},
 	"type": "module",
 	"main": "./dist/terrain.js",
 	"types": "./dist/terrain.d.ts",
