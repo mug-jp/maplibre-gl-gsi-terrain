@@ -1,9 +1,5 @@
-import { describe, expect, it, test } from 'vitest';
-import {
-	getGsiDemProtocolAction,
-	gsidem2terrarium,
-	useGsiTerrainSource,
-} from './terrain';
+import { expect, test } from 'vitest';
+import { getGsiDemProtocolAction, useGsiTerrainSource } from './terrain';
 import maplibregl, {
 	Map,
 	type RasterDEMSourceSpecification,
