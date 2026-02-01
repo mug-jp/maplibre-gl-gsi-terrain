@@ -1,6 +1,10 @@
 import { decode, encode } from 'fast-png';
 
-function gsidem2terrarium(r: number, g: number, b: number): [number, number, number] {
+function gsidem2terrarium(
+	r: number,
+	g: number,
+	b: number,
+): [number, number, number] {
 	let rgb = (r << 16) + (g << 8) + b;
 	let h = 0;
 	if (rgb < 0x800000) h = rgb * 0.01;
@@ -14,13 +18,13 @@ function gsidem2terrarium(r: number, g: number, b: number): [number, number, num
 
 self.onmessage = async (e: MessageEvent) => {
 	const { pngData, id } = e.data;
-	
+
 	// PNGをデコード（地理院タイル等は常にRGB形式を想定）
 	const decoded = decode(pngData);
 	const width = decoded.width;
 	const height = decoded.height;
 	const imageData = decoded.data;
-	
+
 	// ピクセルごとに変換（RGB形式で直接処理）
 	for (let i = 0; i < width * height; i++) {
 		const tRGB = gsidem2terrarium(
@@ -32,7 +36,7 @@ self.onmessage = async (e: MessageEvent) => {
 		imageData[i * 3 + 1] = tRGB[1];
 		imageData[i * 3 + 2] = tRGB[2];
 	}
-	
+
 	// PNGにエンコード（RGB形式）
 	const png = encode({
 		width,
@@ -41,6 +45,6 @@ self.onmessage = async (e: MessageEvent) => {
 		depth: 8,
 		channels: 3,
 	});
-	
-	self.postMessage({ png, id }, [png.buffer]);
+
+	(self as unknown as Worker).postMessage({ png, id }, [png.buffer]);
 };
