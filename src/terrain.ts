@@ -3,7 +3,7 @@ import type {
 	RasterDEMSourceSpecification,
 } from 'maplibre-gl';
 import maplibregl from 'maplibre-gl';
-import TerrainWorker from './terrain.worker.ts?worker';
+import TerrainWorker from './terrain.worker.ts?worker&inline';
 
 let worker: Worker | null = null;
 let requestId = 0;
