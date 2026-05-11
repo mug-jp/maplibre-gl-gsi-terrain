@@ -1,3 +1,5 @@
+ARCHIVED: [https://mapterhorn.com/](Mapterhorn)の利用を推奨します
+
 ![GitHub Release](https://badge.fury.io/js/maplibre-gl-gsi-terrain.svg)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/mug-jp/maplibre-gl-gsi-terrain/test.yml?label=test)
 [![codecov](https://codecov.io/gh/mug-jp/maplibre-gl-gsi-terrain/graph/badge.svg?token=U9WGZANPZ9)](https://codecov.io/gh/mug-jp/maplibre-gl-gsi-terrain)
